@@ -1,0 +1,18 @@
+# Project registry — maintained by scripts/bootstrap.sh
+#
+# Each entry records a project bootstrapped from this hub. The hub indexer
+# (scripts/hub-index.py) walks this list to build hub/FR-INDEX.json.
+#
+# Schema:
+#   - name: <slug>
+#     path: <absolute or relative-to-hub-root path>
+#     created: YYYY-MM-DD
+#     stack: python | node | none
+#     private: false  # if true, excluded from cross-project pattern detection
+
+projects:
+- name: ai-hub-poc
+  path: projects\ai-hub-poc
+  created: '2026-05-04'
+  stack: python
+  private: false

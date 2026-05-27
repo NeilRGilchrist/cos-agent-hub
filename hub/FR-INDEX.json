@@ -1,0 +1,1187 @@
+{
+  "generated_at": "2026-05-05T17:15:29+00:00",
+  "projects": [
+    {
+      "name": "ai-hub-poc",
+      "path": "projects\\ai-hub-poc",
+      "created": "2026-05-04",
+      "stack": "python",
+      "private": false,
+      "exists": true,
+      "fr_count": 45,
+      "indexed": true,
+      "worktree_count": 4,
+      "in_flight_fr_count": 0
+    }
+  ],
+  "frs": [
+    {
+      "project": "ai-hub-poc",
+      "fr_id": "FR-0001",
+      "title": "Ingestion Event Contract",
+      "status": "merged",
+      "owner": "architect",
+      "tags": [
+        "ingestion",
+        "event-contract",
+        "freshness",
+        "source-taxonomy"
+      ],
+      "depends_on": [],
+      "derived_from": null,
+      "pattern": null,
+      "created": "2026-05-04",
+      "updated": "2026-05-04",
+      "rel_path": "projects\\ai-hub-poc\\specs\\FR-0001-ingestion-event-contract.md",
+      "branch": "main",
+      "committed": true,
+      "ahead_of_main": false,
+      "worktree_path": null
+    },
+    {
+      "project": "ai-hub-poc",
+      "fr_id": "FR-0002",
+      "title": "Deterministic Event ID Hashing",
+      "status": "ready",
+      "owner": "architect",
+      "tags": [
+        "ingestion",
+        "event-contract",
+        "idempotency"
+      ],
+      "depends_on": [
+        "FR-0001"
+      ],
+      "derived_from": null,
+      "pattern": null,
+      "created": "2026-05-04",
+      "updated": "2026-05-04",
+      "rel_path": "projects\\ai-hub-poc\\specs\\FR-0002-deterministic-event-id.md",
+      "branch": "main",
+      "committed": true,
+      "ahead_of_main": false,
+      "worktree_path": null
+    },
+    {
+      "project": "ai-hub-poc",
+      "fr_id": "FR-0003",
+      "title": "Schema and Producer Versioning Policy",
+      "status": "merged",
+      "owner": "architect",
+      "tags": [
+        "ingestion",
+        "versioning",
+        "governance"
+      ],
+      "depends_on": [
+        "FR-0001"
+      ],
+      "derived_from": null,
+      "pattern": null,
+      "created": "2026-05-04",
+      "updated": "2026-05-05",
+      "rel_path": "projects\\ai-hub-poc\\specs\\FR-0003-versioning-policy.md",
+      "branch": "main",
+      "committed": true,
+      "ahead_of_main": false,
+      "worktree_path": null
+    },
+    {
+      "project": "ai-hub-poc",
+      "fr_id": "FR-0004",
+      "title": "PHI/PII Scrub Pipeline",
+      "status": "ready",
+      "owner": "architect",
+      "tags": [
+        "ingestion",
+        "privacy",
+        "phi",
+        "scrub"
+      ],
+      "depends_on": [
+        "FR-0001",
+        "FR-0002"
+      ],
+      "derived_from": null,
+      "pattern": null,
+      "created": "2026-05-04",
+      "updated": "2026-05-04",
+      "rel_path": "projects\\ai-hub-poc\\specs\\FR-0004-phi-scrub-pipeline.md",
+      "branch": "main",
+      "committed": true,
+      "ahead_of_main": false,
+      "worktree_path": null
+    },
+    {
+      "project": "ai-hub-poc",
+      "fr_id": "FR-0005",
+      "title": "ai-hub Self-Ingestion Adapter",
+      "status": "ready",
+      "owner": "architect",
+      "tags": [
+        "ingestion",
+        "self-ingestion",
+        "code-commit",
+        "demo"
+      ],
+      "depends_on": [
+        "FR-0001",
+        "FR-0002",
+        "FR-0003"
+      ],
+      "derived_from": null,
+      "pattern": null,
+      "created": "2026-05-04",
+      "updated": "2026-05-04",
+      "rel_path": "projects\\ai-hub-poc\\specs\\FR-0005-self-ingestion-adapter.md",
+      "branch": "main",
+      "committed": true,
+      "ahead_of_main": false,
+      "worktree_path": null
+    },
+    {
+      "project": "ai-hub-poc",
+      "fr_id": "FR-0006",
+      "title": "Transcript Capture Adapter (AI-Scribe \u2192 IngestionEvent)",
+      "status": "ready",
+      "owner": "architect",
+      "tags": [
+        "ingestion",
+        "capture",
+        "transcript",
+        "ai-scribe",
+        "webhook"
+      ],
+      "depends_on": [
+        "FR-0001",
+        "FR-0002",
+        "FR-0003",
+        "FR-0004"
+      ],
+      "derived_from": null,
+      "pattern": null,
+      "created": "2026-05-04",
+      "updated": "2026-05-04",
+      "rel_path": "projects\\ai-hub-poc\\specs\\FR-0006-transcript-capture-adapter.md",
+      "branch": "main",
+      "committed": true,
+      "ahead_of_main": false,
+      "worktree_path": null
+    },
+    {
+      "project": "ai-hub-poc",
+      "fr_id": "FR-0007",
+      "title": "Extraction Event Contract (Schema-Driven)",
+      "status": "ready",
+      "owner": "architect",
+      "tags": [
+        "extraction",
+        "event-contract",
+        "schema-registry",
+        "layer-3"
+      ],
+      "depends_on": [
+        "FR-0001",
+        "FR-0003"
+      ],
+      "derived_from": null,
+      "pattern": null,
+      "created": "2026-05-04",
+      "updated": "2026-05-04",
+      "rel_path": "projects\\ai-hub-poc\\specs\\FR-0007-extraction-event-contract.md",
+      "branch": "main",
+      "committed": true,
+      "ahead_of_main": false,
+      "worktree_path": null
+    },
+    {
+      "project": "ai-hub-poc",
+      "fr_id": "FR-0008",
+      "title": "Per-Tenant Extraction Config",
+      "status": "ready",
+      "owner": "architect",
+      "tags": [
+        "extraction",
+        "configuration",
+        "tenant",
+        "layer-3"
+      ],
+      "depends_on": [
+        "FR-0007"
+      ],
+      "derived_from": null,
+      "pattern": null,
+      "created": "2026-05-04",
+      "updated": "2026-05-04",
+      "rel_path": "projects\\ai-hub-poc\\specs\\FR-0008-per-tenant-extraction-config.md",
+      "branch": "main",
+      "committed": true,
+      "ahead_of_main": false,
+      "worktree_path": null
+    },
+    {
+      "project": "ai-hub-poc",
+      "fr_id": "FR-0009",
+      "title": "Extraction Agent (Anthropic SDK Tool-Use)",
+      "status": "ready",
+      "owner": "architect",
+      "tags": [
+        "extraction",
+        "agent",
+        "anthropic-sdk",
+        "tool-use",
+        "layer-3"
+      ],
+      "depends_on": [
+        "FR-0001",
+        "FR-0004",
+        "FR-0007",
+        "FR-0008"
+      ],
+      "derived_from": null,
+      "pattern": null,
+      "created": "2026-05-04",
+      "updated": "2026-05-04",
+      "rel_path": "projects\\ai-hub-poc\\specs\\FR-0009-extraction-agent.md",
+      "branch": "main",
+      "committed": true,
+      "ahead_of_main": false,
+      "worktree_path": null
+    },
+    {
+      "project": "ai-hub-poc",
+      "fr_id": "FR-0010",
+      "title": "Knowledge Graph Projection Schema (Neo4j)",
+      "status": "ready",
+      "owner": "architect",
+      "tags": [
+        "knowledge-graph",
+        "neo4j",
+        "projection",
+        "layer-4",
+        "schema-registry"
+      ],
+      "depends_on": [
+        "FR-0001",
+        "FR-0007",
+        "FR-0008"
+      ],
+      "derived_from": null,
+      "pattern": null,
+      "created": "2026-05-04",
+      "updated": "2026-05-04",
+      "rel_path": "projects\\ai-hub-poc\\specs\\FR-0010-kg-projection-schema.md",
+      "branch": "main",
+      "committed": true,
+      "ahead_of_main": false,
+      "worktree_path": null
+    },
+    {
+      "project": "ai-hub-poc",
+      "fr_id": "FR-0001",
+      "title": "Ingestion Event Contract",
+      "status": "merged",
+      "owner": "architect",
+      "tags": [
+        "ingestion",
+        "event-contract",
+        "freshness",
+        "source-taxonomy"
+      ],
+      "depends_on": [],
+      "derived_from": null,
+      "pattern": null,
+      "created": "2026-05-04",
+      "updated": "2026-05-04",
+      "rel_path": "projects\\ai-hub-poc\\.claude\\worktrees\\dev-FR-0002\\specs\\FR-0001-ingestion-event-contract.md",
+      "branch": "claude/dev-FR-0002",
+      "committed": true,
+      "ahead_of_main": true,
+      "worktree_path": "C:\\Users\\NeilGilchrist\\Code\\agent-team-template\\projects\\ai-hub-poc\\.claude\\worktrees\\dev-FR-0002"
+    },
+    {
+      "project": "ai-hub-poc",
+      "fr_id": "FR-0002",
+      "title": "Deterministic Event ID Hashing",
+      "status": "in-review",
+      "owner": "architect",
+      "tags": [
+        "ingestion",
+        "event-contract",
+        "idempotency"
+      ],
+      "depends_on": [
+        "FR-0001"
+      ],
+      "derived_from": null,
+      "pattern": null,
+      "created": "2026-05-04",
+      "updated": "2026-05-05",
+      "rel_path": "projects\\ai-hub-poc\\.claude\\worktrees\\dev-FR-0002\\specs\\FR-0002-deterministic-event-id.md",
+      "branch": "claude/dev-FR-0002",
+      "committed": true,
+      "ahead_of_main": true,
+      "worktree_path": "C:\\Users\\NeilGilchrist\\Code\\agent-team-template\\projects\\ai-hub-poc\\.claude\\worktrees\\dev-FR-0002"
+    },
+    {
+      "project": "ai-hub-poc",
+      "fr_id": "FR-0003",
+      "title": "Schema and Producer Versioning Policy",
+      "status": "ready",
+      "owner": "architect",
+      "tags": [
+        "ingestion",
+        "versioning",
+        "governance"
+      ],
+      "depends_on": [
+        "FR-0001"
+      ],
+      "derived_from": null,
+      "pattern": null,
+      "created": "2026-05-04",
+      "updated": "2026-05-04",
+      "rel_path": "projects\\ai-hub-poc\\.claude\\worktrees\\dev-FR-0002\\specs\\FR-0003-versioning-policy.md",
+      "branch": "claude/dev-FR-0002",
+      "committed": true,
+      "ahead_of_main": true,
+      "worktree_path": "C:\\Users\\NeilGilchrist\\Code\\agent-team-template\\projects\\ai-hub-poc\\.claude\\worktrees\\dev-FR-0002"
+    },
+    {
+      "project": "ai-hub-poc",
+      "fr_id": "FR-0004",
+      "title": "PHI/PII Scrub Pipeline",
+      "status": "ready",
+      "owner": "architect",
+      "tags": [
+        "ingestion",
+        "privacy",
+        "phi",
+        "scrub"
+      ],
+      "depends_on": [
+        "FR-0001",
+        "FR-0002"
+      ],
+      "derived_from": null,
+      "pattern": null,
+      "created": "2026-05-04",
+      "updated": "2026-05-04",
+      "rel_path": "projects\\ai-hub-poc\\.claude\\worktrees\\dev-FR-0002\\specs\\FR-0004-phi-scrub-pipeline.md",
+      "branch": "claude/dev-FR-0002",
+      "committed": true,
+      "ahead_of_main": true,
+      "worktree_path": "C:\\Users\\NeilGilchrist\\Code\\agent-team-template\\projects\\ai-hub-poc\\.claude\\worktrees\\dev-FR-0002"
+    },
+    {
+      "project": "ai-hub-poc",
+      "fr_id": "FR-0005",
+      "title": "ai-hub Self-Ingestion Adapter",
+      "status": "ready",
+      "owner": "architect",
+      "tags": [
+        "ingestion",
+        "self-ingestion",
+        "code-commit",
+        "demo"
+      ],
+      "depends_on": [
+        "FR-0001",
+        "FR-0002",
+        "FR-0003"
+      ],
+      "derived_from": null,
+      "pattern": null,
+      "created": "2026-05-04",
+      "updated": "2026-05-04",
+      "rel_path": "projects\\ai-hub-poc\\.claude\\worktrees\\dev-FR-0002\\specs\\FR-0005-self-ingestion-adapter.md",
+      "branch": "claude/dev-FR-0002",
+      "committed": true,
+      "ahead_of_main": true,
+      "worktree_path": "C:\\Users\\NeilGilchrist\\Code\\agent-team-template\\projects\\ai-hub-poc\\.claude\\worktrees\\dev-FR-0002"
+    },
+    {
+      "project": "ai-hub-poc",
+      "fr_id": "FR-0006",
+      "title": "Transcript Capture Adapter (AI-Scribe \u2192 IngestionEvent)",
+      "status": "ready",
+      "owner": "architect",
+      "tags": [
+        "ingestion",
+        "capture",
+        "transcript",
+        "ai-scribe",
+        "webhook"
+      ],
+      "depends_on": [
+        "FR-0001",
+        "FR-0002",
+        "FR-0003",
+        "FR-0004"
+      ],
+      "derived_from": null,
+      "pattern": null,
+      "created": "2026-05-04",
+      "updated": "2026-05-04",
+      "rel_path": "projects\\ai-hub-poc\\.claude\\worktrees\\dev-FR-0002\\specs\\FR-0006-transcript-capture-adapter.md",
+      "branch": "claude/dev-FR-0002",
+      "committed": true,
+      "ahead_of_main": true,
+      "worktree_path": "C:\\Users\\NeilGilchrist\\Code\\agent-team-template\\projects\\ai-hub-poc\\.claude\\worktrees\\dev-FR-0002"
+    },
+    {
+      "project": "ai-hub-poc",
+      "fr_id": "FR-0007",
+      "title": "Extraction Event Contract (Schema-Driven)",
+      "status": "ready",
+      "owner": "architect",
+      "tags": [
+        "extraction",
+        "event-contract",
+        "schema-registry",
+        "layer-3"
+      ],
+      "depends_on": [
+        "FR-0001",
+        "FR-0003"
+      ],
+      "derived_from": null,
+      "pattern": null,
+      "created": "2026-05-04",
+      "updated": "2026-05-04",
+      "rel_path": "projects\\ai-hub-poc\\.claude\\worktrees\\dev-FR-0002\\specs\\FR-0007-extraction-event-contract.md",
+      "branch": "claude/dev-FR-0002",
+      "committed": true,
+      "ahead_of_main": true,
+      "worktree_path": "C:\\Users\\NeilGilchrist\\Code\\agent-team-template\\projects\\ai-hub-poc\\.claude\\worktrees\\dev-FR-0002"
+    },
+    {
+      "project": "ai-hub-poc",
+      "fr_id": "FR-0008",
+      "title": "Per-Tenant Extraction Config",
+      "status": "ready",
+      "owner": "architect",
+      "tags": [
+        "extraction",
+        "configuration",
+        "tenant",
+        "layer-3"
+      ],
+      "depends_on": [
+        "FR-0007"
+      ],
+      "derived_from": null,
+      "pattern": null,
+      "created": "2026-05-04",
+      "updated": "2026-05-04",
+      "rel_path": "projects\\ai-hub-poc\\.claude\\worktrees\\dev-FR-0002\\specs\\FR-0008-per-tenant-extraction-config.md",
+      "branch": "claude/dev-FR-0002",
+      "committed": true,
+      "ahead_of_main": true,
+      "worktree_path": "C:\\Users\\NeilGilchrist\\Code\\agent-team-template\\projects\\ai-hub-poc\\.claude\\worktrees\\dev-FR-0002"
+    },
+    {
+      "project": "ai-hub-poc",
+      "fr_id": "FR-0009",
+      "title": "Extraction Agent (Anthropic SDK Tool-Use)",
+      "status": "ready",
+      "owner": "architect",
+      "tags": [
+        "extraction",
+        "agent",
+        "anthropic-sdk",
+        "tool-use",
+        "layer-3"
+      ],
+      "depends_on": [
+        "FR-0001",
+        "FR-0004",
+        "FR-0007",
+        "FR-0008"
+      ],
+      "derived_from": null,
+      "pattern": null,
+      "created": "2026-05-04",
+      "updated": "2026-05-04",
+      "rel_path": "projects\\ai-hub-poc\\.claude\\worktrees\\dev-FR-0002\\specs\\FR-0009-extraction-agent.md",
+      "branch": "claude/dev-FR-0002",
+      "committed": true,
+      "ahead_of_main": true,
+      "worktree_path": "C:\\Users\\NeilGilchrist\\Code\\agent-team-template\\projects\\ai-hub-poc\\.claude\\worktrees\\dev-FR-0002"
+    },
+    {
+      "project": "ai-hub-poc",
+      "fr_id": "FR-0010",
+      "title": "Knowledge Graph Projection Schema (Neo4j)",
+      "status": "ready",
+      "owner": "architect",
+      "tags": [
+        "knowledge-graph",
+        "neo4j",
+        "projection",
+        "layer-4",
+        "schema-registry"
+      ],
+      "depends_on": [
+        "FR-0001",
+        "FR-0007",
+        "FR-0008"
+      ],
+      "derived_from": null,
+      "pattern": null,
+      "created": "2026-05-04",
+      "updated": "2026-05-04",
+      "rel_path": "projects\\ai-hub-poc\\.claude\\worktrees\\dev-FR-0002\\specs\\FR-0010-kg-projection-schema.md",
+      "branch": "claude/dev-FR-0002",
+      "committed": true,
+      "ahead_of_main": true,
+      "worktree_path": "C:\\Users\\NeilGilchrist\\Code\\agent-team-template\\projects\\ai-hub-poc\\.claude\\worktrees\\dev-FR-0002"
+    },
+    {
+      "project": "ai-hub-poc",
+      "fr_id": "FR-0001",
+      "title": "Ingestion Event Contract",
+      "status": "ready",
+      "owner": "architect",
+      "tags": [
+        "ingestion",
+        "event-contract",
+        "freshness",
+        "source-taxonomy"
+      ],
+      "depends_on": [],
+      "derived_from": null,
+      "pattern": null,
+      "created": "2026-05-04",
+      "updated": "2026-05-04",
+      "rel_path": "projects\\ai-hub-poc\\.claude\\worktrees\\eager-benz-456206\\specs\\FR-0001-ingestion-event-contract.md",
+      "branch": "claude/eager-benz-456206",
+      "committed": true,
+      "ahead_of_main": true,
+      "worktree_path": "C:\\Users\\NeilGilchrist\\Code\\agent-team-template\\projects\\ai-hub-poc\\.claude\\worktrees\\eager-benz-456206"
+    },
+    {
+      "project": "ai-hub-poc",
+      "fr_id": "FR-0002",
+      "title": "Deterministic Event ID Hashing",
+      "status": "ready",
+      "owner": "architect",
+      "tags": [
+        "ingestion",
+        "event-contract",
+        "idempotency"
+      ],
+      "depends_on": [
+        "FR-0001"
+      ],
+      "derived_from": null,
+      "pattern": null,
+      "created": "2026-05-04",
+      "updated": "2026-05-04",
+      "rel_path": "projects\\ai-hub-poc\\.claude\\worktrees\\eager-benz-456206\\specs\\FR-0002-deterministic-event-id.md",
+      "branch": "claude/eager-benz-456206",
+      "committed": true,
+      "ahead_of_main": true,
+      "worktree_path": "C:\\Users\\NeilGilchrist\\Code\\agent-team-template\\projects\\ai-hub-poc\\.claude\\worktrees\\eager-benz-456206"
+    },
+    {
+      "project": "ai-hub-poc",
+      "fr_id": "FR-0003",
+      "title": "Schema and Producer Versioning Policy",
+      "status": "ready",
+      "owner": "architect",
+      "tags": [
+        "ingestion",
+        "versioning",
+        "governance"
+      ],
+      "depends_on": [
+        "FR-0001"
+      ],
+      "derived_from": null,
+      "pattern": null,
+      "created": "2026-05-04",
+      "updated": "2026-05-04",
+      "rel_path": "projects\\ai-hub-poc\\.claude\\worktrees\\eager-benz-456206\\specs\\FR-0003-versioning-policy.md",
+      "branch": "claude/eager-benz-456206",
+      "committed": true,
+      "ahead_of_main": true,
+      "worktree_path": "C:\\Users\\NeilGilchrist\\Code\\agent-team-template\\projects\\ai-hub-poc\\.claude\\worktrees\\eager-benz-456206"
+    },
+    {
+      "project": "ai-hub-poc",
+      "fr_id": "FR-0004",
+      "title": "PHI/PII Scrub Pipeline",
+      "status": "ready",
+      "owner": "architect",
+      "tags": [
+        "ingestion",
+        "privacy",
+        "phi",
+        "scrub"
+      ],
+      "depends_on": [
+        "FR-0001",
+        "FR-0002"
+      ],
+      "derived_from": null,
+      "pattern": null,
+      "created": "2026-05-04",
+      "updated": "2026-05-04",
+      "rel_path": "projects\\ai-hub-poc\\.claude\\worktrees\\eager-benz-456206\\specs\\FR-0004-phi-scrub-pipeline.md",
+      "branch": "claude/eager-benz-456206",
+      "committed": true,
+      "ahead_of_main": true,
+      "worktree_path": "C:\\Users\\NeilGilchrist\\Code\\agent-team-template\\projects\\ai-hub-poc\\.claude\\worktrees\\eager-benz-456206"
+    },
+    {
+      "project": "ai-hub-poc",
+      "fr_id": "FR-0005",
+      "title": "ai-hub Self-Ingestion Adapter",
+      "status": "ready",
+      "owner": "architect",
+      "tags": [
+        "ingestion",
+        "self-ingestion",
+        "code-commit",
+        "demo"
+      ],
+      "depends_on": [
+        "FR-0001",
+        "FR-0002",
+        "FR-0003"
+      ],
+      "derived_from": null,
+      "pattern": null,
+      "created": "2026-05-04",
+      "updated": "2026-05-04",
+      "rel_path": "projects\\ai-hub-poc\\.claude\\worktrees\\eager-benz-456206\\specs\\FR-0005-self-ingestion-adapter.md",
+      "branch": "claude/eager-benz-456206",
+      "committed": true,
+      "ahead_of_main": true,
+      "worktree_path": "C:\\Users\\NeilGilchrist\\Code\\agent-team-template\\projects\\ai-hub-poc\\.claude\\worktrees\\eager-benz-456206"
+    },
+    {
+      "project": "ai-hub-poc",
+      "fr_id": "FR-0001",
+      "title": "Ingestion Event Contract",
+      "status": "merged",
+      "owner": "architect",
+      "tags": [
+        "ingestion",
+        "event-contract",
+        "freshness",
+        "source-taxonomy"
+      ],
+      "depends_on": [],
+      "derived_from": null,
+      "pattern": null,
+      "created": "2026-05-04",
+      "updated": "2026-05-04",
+      "rel_path": "projects\\ai-hub-poc\\.claude\\worktrees\\elastic-morse-b96def\\specs\\FR-0001-ingestion-event-contract.md",
+      "branch": "claude/elastic-morse-b96def",
+      "committed": true,
+      "ahead_of_main": true,
+      "worktree_path": "C:\\Users\\NeilGilchrist\\Code\\agent-team-template\\projects\\ai-hub-poc\\.claude\\worktrees\\elastic-morse-b96def"
+    },
+    {
+      "project": "ai-hub-poc",
+      "fr_id": "FR-0002",
+      "title": "Deterministic Event ID Hashing",
+      "status": "ready",
+      "owner": "architect",
+      "tags": [
+        "ingestion",
+        "event-contract",
+        "idempotency"
+      ],
+      "depends_on": [
+        "FR-0001"
+      ],
+      "derived_from": null,
+      "pattern": null,
+      "created": "2026-05-04",
+      "updated": "2026-05-04",
+      "rel_path": "projects\\ai-hub-poc\\.claude\\worktrees\\elastic-morse-b96def\\specs\\FR-0002-deterministic-event-id.md",
+      "branch": "claude/elastic-morse-b96def",
+      "committed": true,
+      "ahead_of_main": true,
+      "worktree_path": "C:\\Users\\NeilGilchrist\\Code\\agent-team-template\\projects\\ai-hub-poc\\.claude\\worktrees\\elastic-morse-b96def"
+    },
+    {
+      "project": "ai-hub-poc",
+      "fr_id": "FR-0003",
+      "title": "Schema and Producer Versioning Policy",
+      "status": "ready",
+      "owner": "architect",
+      "tags": [
+        "ingestion",
+        "versioning",
+        "governance"
+      ],
+      "depends_on": [
+        "FR-0001"
+      ],
+      "derived_from": null,
+      "pattern": null,
+      "created": "2026-05-04",
+      "updated": "2026-05-04",
+      "rel_path": "projects\\ai-hub-poc\\.claude\\worktrees\\elastic-morse-b96def\\specs\\FR-0003-versioning-policy.md",
+      "branch": "claude/elastic-morse-b96def",
+      "committed": true,
+      "ahead_of_main": true,
+      "worktree_path": "C:\\Users\\NeilGilchrist\\Code\\agent-team-template\\projects\\ai-hub-poc\\.claude\\worktrees\\elastic-morse-b96def"
+    },
+    {
+      "project": "ai-hub-poc",
+      "fr_id": "FR-0004",
+      "title": "PHI/PII Scrub Pipeline",
+      "status": "ready",
+      "owner": "architect",
+      "tags": [
+        "ingestion",
+        "privacy",
+        "phi",
+        "scrub"
+      ],
+      "depends_on": [
+        "FR-0001",
+        "FR-0002"
+      ],
+      "derived_from": null,
+      "pattern": null,
+      "created": "2026-05-04",
+      "updated": "2026-05-04",
+      "rel_path": "projects\\ai-hub-poc\\.claude\\worktrees\\elastic-morse-b96def\\specs\\FR-0004-phi-scrub-pipeline.md",
+      "branch": "claude/elastic-morse-b96def",
+      "committed": true,
+      "ahead_of_main": true,
+      "worktree_path": "C:\\Users\\NeilGilchrist\\Code\\agent-team-template\\projects\\ai-hub-poc\\.claude\\worktrees\\elastic-morse-b96def"
+    },
+    {
+      "project": "ai-hub-poc",
+      "fr_id": "FR-0005",
+      "title": "ai-hub Self-Ingestion Adapter",
+      "status": "ready",
+      "owner": "architect",
+      "tags": [
+        "ingestion",
+        "self-ingestion",
+        "code-commit",
+        "demo"
+      ],
+      "depends_on": [
+        "FR-0001",
+        "FR-0002",
+        "FR-0003"
+      ],
+      "derived_from": null,
+      "pattern": null,
+      "created": "2026-05-04",
+      "updated": "2026-05-04",
+      "rel_path": "projects\\ai-hub-poc\\.claude\\worktrees\\elastic-morse-b96def\\specs\\FR-0005-self-ingestion-adapter.md",
+      "branch": "claude/elastic-morse-b96def",
+      "committed": true,
+      "ahead_of_main": true,
+      "worktree_path": "C:\\Users\\NeilGilchrist\\Code\\agent-team-template\\projects\\ai-hub-poc\\.claude\\worktrees\\elastic-morse-b96def"
+    },
+    {
+      "project": "ai-hub-poc",
+      "fr_id": "FR-0006",
+      "title": "Transcript Capture Adapter (AI-Scribe \u2192 IngestionEvent)",
+      "status": "ready",
+      "owner": "architect",
+      "tags": [
+        "ingestion",
+        "capture",
+        "transcript",
+        "ai-scribe",
+        "webhook"
+      ],
+      "depends_on": [
+        "FR-0001",
+        "FR-0002",
+        "FR-0003",
+        "FR-0004"
+      ],
+      "derived_from": null,
+      "pattern": null,
+      "created": "2026-05-04",
+      "updated": "2026-05-04",
+      "rel_path": "projects\\ai-hub-poc\\.claude\\worktrees\\elastic-morse-b96def\\specs\\FR-0006-transcript-capture-adapter.md",
+      "branch": "claude/elastic-morse-b96def",
+      "committed": true,
+      "ahead_of_main": true,
+      "worktree_path": "C:\\Users\\NeilGilchrist\\Code\\agent-team-template\\projects\\ai-hub-poc\\.claude\\worktrees\\elastic-morse-b96def"
+    },
+    {
+      "project": "ai-hub-poc",
+      "fr_id": "FR-0007",
+      "title": "Extraction Event Contract (Schema-Driven)",
+      "status": "ready",
+      "owner": "architect",
+      "tags": [
+        "extraction",
+        "event-contract",
+        "schema-registry",
+        "layer-3"
+      ],
+      "depends_on": [
+        "FR-0001",
+        "FR-0003"
+      ],
+      "derived_from": null,
+      "pattern": null,
+      "created": "2026-05-04",
+      "updated": "2026-05-04",
+      "rel_path": "projects\\ai-hub-poc\\.claude\\worktrees\\elastic-morse-b96def\\specs\\FR-0007-extraction-event-contract.md",
+      "branch": "claude/elastic-morse-b96def",
+      "committed": true,
+      "ahead_of_main": true,
+      "worktree_path": "C:\\Users\\NeilGilchrist\\Code\\agent-team-template\\projects\\ai-hub-poc\\.claude\\worktrees\\elastic-morse-b96def"
+    },
+    {
+      "project": "ai-hub-poc",
+      "fr_id": "FR-0008",
+      "title": "Per-Tenant Extraction Config",
+      "status": "ready",
+      "owner": "architect",
+      "tags": [
+        "extraction",
+        "configuration",
+        "tenant",
+        "layer-3"
+      ],
+      "depends_on": [
+        "FR-0007"
+      ],
+      "derived_from": null,
+      "pattern": null,
+      "created": "2026-05-04",
+      "updated": "2026-05-04",
+      "rel_path": "projects\\ai-hub-poc\\.claude\\worktrees\\elastic-morse-b96def\\specs\\FR-0008-per-tenant-extraction-config.md",
+      "branch": "claude/elastic-morse-b96def",
+      "committed": true,
+      "ahead_of_main": true,
+      "worktree_path": "C:\\Users\\NeilGilchrist\\Code\\agent-team-template\\projects\\ai-hub-poc\\.claude\\worktrees\\elastic-morse-b96def"
+    },
+    {
+      "project": "ai-hub-poc",
+      "fr_id": "FR-0009",
+      "title": "Extraction Agent (Anthropic SDK Tool-Use)",
+      "status": "ready",
+      "owner": "architect",
+      "tags": [
+        "extraction",
+        "agent",
+        "anthropic-sdk",
+        "tool-use",
+        "layer-3"
+      ],
+      "depends_on": [
+        "FR-0001",
+        "FR-0004",
+        "FR-0007",
+        "FR-0008"
+      ],
+      "derived_from": null,
+      "pattern": null,
+      "created": "2026-05-04",
+      "updated": "2026-05-04",
+      "rel_path": "projects\\ai-hub-poc\\.claude\\worktrees\\elastic-morse-b96def\\specs\\FR-0009-extraction-agent.md",
+      "branch": "claude/elastic-morse-b96def",
+      "committed": true,
+      "ahead_of_main": true,
+      "worktree_path": "C:\\Users\\NeilGilchrist\\Code\\agent-team-template\\projects\\ai-hub-poc\\.claude\\worktrees\\elastic-morse-b96def"
+    },
+    {
+      "project": "ai-hub-poc",
+      "fr_id": "FR-0010",
+      "title": "Knowledge Graph Projection Schema (Neo4j)",
+      "status": "ready",
+      "owner": "architect",
+      "tags": [
+        "knowledge-graph",
+        "neo4j",
+        "projection",
+        "layer-4",
+        "schema-registry"
+      ],
+      "depends_on": [
+        "FR-0001",
+        "FR-0007",
+        "FR-0008"
+      ],
+      "derived_from": null,
+      "pattern": null,
+      "created": "2026-05-04",
+      "updated": "2026-05-04",
+      "rel_path": "projects\\ai-hub-poc\\.claude\\worktrees\\elastic-morse-b96def\\specs\\FR-0010-kg-projection-schema.md",
+      "branch": "claude/elastic-morse-b96def",
+      "committed": true,
+      "ahead_of_main": true,
+      "worktree_path": "C:\\Users\\NeilGilchrist\\Code\\agent-team-template\\projects\\ai-hub-poc\\.claude\\worktrees\\elastic-morse-b96def"
+    },
+    {
+      "project": "ai-hub-poc",
+      "fr_id": "FR-0001",
+      "title": "Ingestion Event Contract",
+      "status": "ready",
+      "owner": "architect",
+      "tags": [
+        "ingestion",
+        "event-contract",
+        "freshness",
+        "source-taxonomy"
+      ],
+      "depends_on": [],
+      "derived_from": null,
+      "pattern": null,
+      "created": "2026-05-04",
+      "updated": "2026-05-04",
+      "rel_path": "projects\\ai-hub-poc\\.claude\\worktrees\\suspicious-margulis-eeebff\\specs\\FR-0001-ingestion-event-contract.md",
+      "branch": "claude/suspicious-margulis-eeebff",
+      "committed": true,
+      "ahead_of_main": true,
+      "worktree_path": "C:\\Users\\NeilGilchrist\\Code\\agent-team-template\\projects\\ai-hub-poc\\.claude\\worktrees\\suspicious-margulis-eeebff"
+    },
+    {
+      "project": "ai-hub-poc",
+      "fr_id": "FR-0002",
+      "title": "Deterministic Event ID Hashing",
+      "status": "ready",
+      "owner": "architect",
+      "tags": [
+        "ingestion",
+        "event-contract",
+        "idempotency"
+      ],
+      "depends_on": [
+        "FR-0001"
+      ],
+      "derived_from": null,
+      "pattern": null,
+      "created": "2026-05-04",
+      "updated": "2026-05-04",
+      "rel_path": "projects\\ai-hub-poc\\.claude\\worktrees\\suspicious-margulis-eeebff\\specs\\FR-0002-deterministic-event-id.md",
+      "branch": "claude/suspicious-margulis-eeebff",
+      "committed": true,
+      "ahead_of_main": true,
+      "worktree_path": "C:\\Users\\NeilGilchrist\\Code\\agent-team-template\\projects\\ai-hub-poc\\.claude\\worktrees\\suspicious-margulis-eeebff"
+    },
+    {
+      "project": "ai-hub-poc",
+      "fr_id": "FR-0003",
+      "title": "Schema and Producer Versioning Policy",
+      "status": "ready",
+      "owner": "architect",
+      "tags": [
+        "ingestion",
+        "versioning",
+        "governance"
+      ],
+      "depends_on": [
+        "FR-0001"
+      ],
+      "derived_from": null,
+      "pattern": null,
+      "created": "2026-05-04",
+      "updated": "2026-05-04",
+      "rel_path": "projects\\ai-hub-poc\\.claude\\worktrees\\suspicious-margulis-eeebff\\specs\\FR-0003-versioning-policy.md",
+      "branch": "claude/suspicious-margulis-eeebff",
+      "committed": true,
+      "ahead_of_main": true,
+      "worktree_path": "C:\\Users\\NeilGilchrist\\Code\\agent-team-template\\projects\\ai-hub-poc\\.claude\\worktrees\\suspicious-margulis-eeebff"
+    },
+    {
+      "project": "ai-hub-poc",
+      "fr_id": "FR-0004",
+      "title": "PHI/PII Scrub Pipeline",
+      "status": "ready",
+      "owner": "architect",
+      "tags": [
+        "ingestion",
+        "privacy",
+        "phi",
+        "scrub"
+      ],
+      "depends_on": [
+        "FR-0001",
+        "FR-0002"
+      ],
+      "derived_from": null,
+      "pattern": null,
+      "created": "2026-05-04",
+      "updated": "2026-05-04",
+      "rel_path": "projects\\ai-hub-poc\\.claude\\worktrees\\suspicious-margulis-eeebff\\specs\\FR-0004-phi-scrub-pipeline.md",
+      "branch": "claude/suspicious-margulis-eeebff",
+      "committed": true,
+      "ahead_of_main": true,
+      "worktree_path": "C:\\Users\\NeilGilchrist\\Code\\agent-team-template\\projects\\ai-hub-poc\\.claude\\worktrees\\suspicious-margulis-eeebff"
+    },
+    {
+      "project": "ai-hub-poc",
+      "fr_id": "FR-0005",
+      "title": "ai-hub Self-Ingestion Adapter",
+      "status": "ready",
+      "owner": "architect",
+      "tags": [
+        "ingestion",
+        "self-ingestion",
+        "code-commit",
+        "demo"
+      ],
+      "depends_on": [
+        "FR-0001",
+        "FR-0002",
+        "FR-0003"
+      ],
+      "derived_from": null,
+      "pattern": null,
+      "created": "2026-05-04",
+      "updated": "2026-05-04",
+      "rel_path": "projects\\ai-hub-poc\\.claude\\worktrees\\suspicious-margulis-eeebff\\specs\\FR-0005-self-ingestion-adapter.md",
+      "branch": "claude/suspicious-margulis-eeebff",
+      "committed": true,
+      "ahead_of_main": true,
+      "worktree_path": "C:\\Users\\NeilGilchrist\\Code\\agent-team-template\\projects\\ai-hub-poc\\.claude\\worktrees\\suspicious-margulis-eeebff"
+    },
+    {
+      "project": "ai-hub-poc",
+      "fr_id": "FR-0006",
+      "title": "Transcript Capture Adapter (AI-Scribe \u2192 IngestionEvent)",
+      "status": "ready",
+      "owner": "architect",
+      "tags": [
+        "ingestion",
+        "capture",
+        "transcript",
+        "ai-scribe",
+        "webhook"
+      ],
+      "depends_on": [
+        "FR-0001",
+        "FR-0002",
+        "FR-0003",
+        "FR-0004"
+      ],
+      "derived_from": null,
+      "pattern": null,
+      "created": "2026-05-04",
+      "updated": "2026-05-04",
+      "rel_path": "projects\\ai-hub-poc\\.claude\\worktrees\\suspicious-margulis-eeebff\\specs\\FR-0006-transcript-capture-adapter.md",
+      "branch": "claude/suspicious-margulis-eeebff",
+      "committed": true,
+      "ahead_of_main": true,
+      "worktree_path": "C:\\Users\\NeilGilchrist\\Code\\agent-team-template\\projects\\ai-hub-poc\\.claude\\worktrees\\suspicious-margulis-eeebff"
+    },
+    {
+      "project": "ai-hub-poc",
+      "fr_id": "FR-0007",
+      "title": "Extraction Event Contract (Schema-Driven)",
+      "status": "ready",
+      "owner": "architect",
+      "tags": [
+        "extraction",
+        "event-contract",
+        "schema-registry",
+        "layer-3"
+      ],
+      "depends_on": [
+        "FR-0001",
+        "FR-0003"
+      ],
+      "derived_from": null,
+      "pattern": null,
+      "created": "2026-05-04",
+      "updated": "2026-05-04",
+      "rel_path": "projects\\ai-hub-poc\\.claude\\worktrees\\suspicious-margulis-eeebff\\specs\\FR-0007-extraction-event-contract.md",
+      "branch": "claude/suspicious-margulis-eeebff",
+      "committed": true,
+      "ahead_of_main": true,
+      "worktree_path": "C:\\Users\\NeilGilchrist\\Code\\agent-team-template\\projects\\ai-hub-poc\\.claude\\worktrees\\suspicious-margulis-eeebff"
+    },
+    {
+      "project": "ai-hub-poc",
+      "fr_id": "FR-0008",
+      "title": "Per-Tenant Extraction Config",
+      "status": "ready",
+      "owner": "architect",
+      "tags": [
+        "extraction",
+        "configuration",
+        "tenant",
+        "layer-3"
+      ],
+      "depends_on": [
+        "FR-0007"
+      ],
+      "derived_from": null,
+      "pattern": null,
+      "created": "2026-05-04",
+      "updated": "2026-05-04",
+      "rel_path": "projects\\ai-hub-poc\\.claude\\worktrees\\suspicious-margulis-eeebff\\specs\\FR-0008-per-tenant-extraction-config.md",
+      "branch": "claude/suspicious-margulis-eeebff",
+      "committed": true,
+      "ahead_of_main": true,
+      "worktree_path": "C:\\Users\\NeilGilchrist\\Code\\agent-team-template\\projects\\ai-hub-poc\\.claude\\worktrees\\suspicious-margulis-eeebff"
+    },
+    {
+      "project": "ai-hub-poc",
+      "fr_id": "FR-0009",
+      "title": "Extraction Agent (Anthropic SDK Tool-Use)",
+      "status": "ready",
+      "owner": "architect",
+      "tags": [
+        "extraction",
+        "agent",
+        "anthropic-sdk",
+        "tool-use",
+        "layer-3"
+      ],
+      "depends_on": [
+        "FR-0001",
+        "FR-0004",
+        "FR-0007",
+        "FR-0008"
+      ],
+      "derived_from": null,
+      "pattern": null,
+      "created": "2026-05-04",
+      "updated": "2026-05-04",
+      "rel_path": "projects\\ai-hub-poc\\.claude\\worktrees\\suspicious-margulis-eeebff\\specs\\FR-0009-extraction-agent.md",
+      "branch": "claude/suspicious-margulis-eeebff",
+      "committed": true,
+      "ahead_of_main": true,
+      "worktree_path": "C:\\Users\\NeilGilchrist\\Code\\agent-team-template\\projects\\ai-hub-poc\\.claude\\worktrees\\suspicious-margulis-eeebff"
+    },
+    {
+      "project": "ai-hub-poc",
+      "fr_id": "FR-0010",
+      "title": "Knowledge Graph Projection Schema (Neo4j)",
+      "status": "ready",
+      "owner": "architect",
+      "tags": [
+        "knowledge-graph",
+        "neo4j",
+        "projection",
+        "layer-4",
+        "schema-registry"
+      ],
+      "depends_on": [
+        "FR-0001",
+        "FR-0007",
+        "FR-0008"
+      ],
+      "derived_from": null,
+      "pattern": null,
+      "created": "2026-05-04",
+      "updated": "2026-05-04",
+      "rel_path": "projects\\ai-hub-poc\\.claude\\worktrees\\suspicious-margulis-eeebff\\specs\\FR-0010-kg-projection-schema.md",
+      "branch": "claude/suspicious-margulis-eeebff",
+      "committed": true,
+      "ahead_of_main": true,
+      "worktree_path": "C:\\Users\\NeilGilchrist\\Code\\agent-team-template\\projects\\ai-hub-poc\\.claude\\worktrees\\suspicious-margulis-eeebff"
+    }
+  ]
+}

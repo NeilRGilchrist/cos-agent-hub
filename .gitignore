@@ -1,0 +1,11 @@
+AGENTS.override.md
+CLAUDE.local.md
+**/AGENTS.override.md
+**/CLAUDE.local.md
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.bootstrap-venv/
+.ruff_cache/

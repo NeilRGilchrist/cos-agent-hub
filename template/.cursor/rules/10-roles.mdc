@@ -1,0 +1,11 @@
+---
+description: Prime role-specific rule files
+alwaysApply: true
+---
+
+Role definitions live in:
+- `.agent-team/roles/architect.md`
+- `.agent-team/roles/developer.md`
+- `.agent-team/roles/reviewer.md`
+
+When a task maps to one role, follow that role file's boundaries exactly.

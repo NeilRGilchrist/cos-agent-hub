@@ -1,0 +1,12 @@
+# AGENTS.override.md (local override example)
+
+Copy this file to `AGENTS.override.md` in the project root for machine-local or personal defaults.
+
+Do not commit `AGENTS.override.md`. It is gitignored by default.
+
+Suggested uses:
+- Personal command preferences (for example, prefer `uv` for Python workflows).
+- Local environment quirks that do not belong in shared project rules.
+- Temporary investigation instructions while debugging.
+
+Do not use overrides to bypass core safeguards from `AGENTS.md`, role files, or escalation rules.

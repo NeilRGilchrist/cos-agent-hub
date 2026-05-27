@@ -1,0 +1,8 @@
+---
+description: Project working agreement and role boundaries
+alwaysApply: true
+---
+
+Read `AGENTS.md` in the project root before doing anything. It is the source of truth for the working agreement, conventions, glossary, and forbidden edits.
+
+Before writing anything, identify which role you are operating in (Architect / Developer / Reviewer) per `AGENTS.md` under "Your role", and read the matching file under `.agent-team/roles/`. If the user has not specified a role, ask and do not default.

@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__ce0a63b3-78ea-400f-a257-a24012ec210d__getConfluencePage",
+      "Bash(python -c \"import yaml; print\\(yaml.__version__\\)\")",
+      "PowerShell(Get-Command python, python3, py, uv -ErrorAction SilentlyContinue)",
+      "Bash(bash scripts/deploy-gate.py)",
+      "Bash(python scripts/deploy-gate.py)",
+      "Bash(echo \"---exit $?---\")",
+      "Bash(python scripts/hub-index.py)",
+      "Bash(python scripts/parking.py reindex)",
+      "Bash(python scripts/patterns.py reindex)",
+      "Bash(C:/Users/NeilGilchrist/AppData/Roaming/uv/python/cpython-3.12.13-windows-x86_64-none/python.exe scripts/hub-index.py)",
+      "Bash(C:/Users/NeilGilchrist/AppData/Roaming/uv/python/cpython-3.12.13-windows-x86_64-none/python.exe scripts/parking.py reindex)",
+      "Bash(C:/Users/NeilGilchrist/AppData/Roaming/uv/python/cpython-3.12.13-windows-x86_64-none/python.exe scripts/patterns.py reindex)",
+      "Read(//c/Users/NeilGilchrist/AppData/Roaming/uv/**)",
+      "Read(//c/Users/NeilGilchrist/.local/bin/**)",
+      "Bash(.venv/Scripts/python.exe scripts/hub-index.py)",
+      "Bash(.venv/Scripts/python.exe scripts/parking.py reindex)",
+      "Bash(.venv/Scripts/python.exe scripts/patterns.py reindex)",
+      "Bash(../../.venv/Scripts/python.exe scripts/index-specs.py)",
+      "Bash(python scripts/parking.py reflect)",
+      "Bash(python scripts/agent-status.py --all)"
+    ]
+  }
+}

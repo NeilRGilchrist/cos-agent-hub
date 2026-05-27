@@ -1,0 +1,12 @@
+AGENTS.override.md
+CLAUDE.local.md
+
+# Dispatch state (locks, logs, last-tick marker) — local-only.
+_dispatch/
+
+# Per-FR developer/reviewer git worktrees — local-only.
+.claude/worktrees/
+
+# PR body is generated per-FR by the dispatcher and consumed by
+# `gh pr create --body-file`. It must not be committed.
+PR_BODY.md

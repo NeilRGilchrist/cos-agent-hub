@@ -1,0 +1,5 @@
+# Agent team scripts require pyyaml for YAML frontmatter parsing.
+pyyaml>=6.0
+
+# Add project-specific dependencies below this line.
+# Pin versions for reproducibility (e.g., requests==2.31.0).

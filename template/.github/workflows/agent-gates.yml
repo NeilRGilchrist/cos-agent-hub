@@ -1,0 +1,82 @@
+name: agent-gates
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  spec-gate:
+    name: Spec graph + traceability gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install pyyaml
+
+      - name: Validate spec index
+        run: python scripts/index-specs.py
+
+      - name: Check spec index is up to date
+        run: |
+          if [ -n "$(git status --porcelain specs/INDEX.md)" ]; then
+            echo "::error::specs/INDEX.md is out of date. Run 'python scripts/index-specs.py' and commit."
+            git diff specs/INDEX.md
+            exit 1
+          fi
+
+      - name: Run deploy gate (full)
+        run: python scripts/deploy-gate.py --stage full
+
+  # -----------------------------------------------------------------------
+  # Language-specific test/lint jobs (commented out by default).
+  #
+  # HOW TO ENABLE:
+  #   1. Uncomment the job block for your stack (python-tests or node-tests)
+  #   2. Adjust the pip install line to match your project's actual
+  #      dependencies. At minimum you need: pyyaml (for the spec indexer),
+  #      pytest (test runner), and ruff (linter). Add any project-specific
+  #      deps (e.g. pydantic, httpx) as needed. Alternatively, replace
+  #      the pip install line with `pip install -r requirements.txt` if
+  #      your project maintains a requirements file.
+  #   3. The `ruff check` and `ruff format` commands lint both `src/` and
+  #      `tests/`. Adjust the paths if your project uses a different layout.
+  #
+  # bootstrap.sh --stack python will auto-uncomment the python-tests block.
+  # bootstrap.sh --stack node will auto-uncomment the node-tests block.
+  # -----------------------------------------------------------------------
+  #
+  # python-tests:
+  #   name: python-tests
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: actions/setup-python@v5
+  #       with:
+  #         python-version: "3.11"
+  #     - name: Install test dependencies
+  #       run: pip install pytest pyyaml ruff
+  #     - name: Lint (src + tests)
+  #       run: ruff check src tests
+  #     - name: Format check (src + tests)
+  #       run: ruff format --check src tests
+  #     - name: Tests
+  #       run: pytest -q
+  #
+  # node-tests:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: actions/setup-node@v4
+  #       with:
+  #         node-version: "20"
+  #     - run: npm ci
+  #     - run: npm run lint
+  #     - run: npm test

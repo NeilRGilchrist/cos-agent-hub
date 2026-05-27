@@ -1,0 +1,13 @@
+# DISABLED_BY_DEFAULT: bootstrap.sh enables this for --stack python
+<!--
+---
+description: Python stack conventions
+globs:
+  - "**/*.py"
+---
+
+Use Python conventions from `AGENTS.md`:
+- Type hints required.
+- Run `pytest` for tests.
+- Run `ruff check .` and `ruff format --check .` before completion.
+-->

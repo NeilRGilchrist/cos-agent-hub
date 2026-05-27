@@ -1,0 +1,15 @@
+# CODEOWNERS configuration for the spec indexer.
+#
+# When this file exists (as `.agent-team/codeowners-config.yaml`, without
+# the `.example` suffix), `scripts/index-specs.py` will auto-generate a
+# CODEOWNERS file from the `owns:` globs declared in FR frontmatter.
+#
+# To enable:
+#   1. Copy this file to `.agent-team/codeowners-config.yaml`
+#   2. Replace the placeholder handle with your GitHub username or team
+#   3. Run `python scripts/index-specs.py` to generate CODEOWNERS
+#
+# The generated CODEOWNERS file maps each FR's `owns:` globs to the
+# configured owner, giving GitHub PR reviewers automatic assignment.
+
+owner_handle: "@your-github-handle"

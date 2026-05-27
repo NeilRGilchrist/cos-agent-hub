@@ -1,0 +1,16 @@
+# DISABLED_BY_DEFAULT: bootstrap.sh enables this for --stack node
+<!--
+---
+description: Node and TypeScript stack conventions
+globs:
+  - "**/*.ts"
+  - "**/*.tsx"
+  - "**/*.js"
+  - "**/*.jsx"
+---
+
+Use Node/TypeScript conventions from `AGENTS.md`:
+- TypeScript strict mode and Node 20+.
+- Run the configured test runner (`vitest` or `jest`).
+- Run `eslint .` and `prettier --check .` before completion.
+-->
