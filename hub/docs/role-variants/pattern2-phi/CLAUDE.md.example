@@ -1,0 +1,64 @@
+# CLAUDE.md — Project Working Agreement
+
+This file is read by every Claude Code session at the start of work. Keep it short. Anything project-specific that doesn't fit here belongs in a spec file under `specs/`.
+
+## What this engagement is
+
+> **[FILL IN]** — One paragraph: client name (or anonymized handle), the integration/automation in scope, the systems involved, and the FDE ticket reference. Example: "AlayaCare ↔ [Client] integration via Make.com + Lambda. In scope: client demographic sync, visit data flow, billing reconciliation. FDE ticket: FDE-XXXX."
+
+## Tech stack
+
+- **[FILL IN]** integration runtime (Make.com / Lambda / Iguana / Retool)
+- **[FILL IN]** test command (e.g. `pytest tests/ --junitxml=test-results.xml`)
+- **[FILL IN]** language(s) the implementation targets
+
+## PHI hygiene (non-negotiable)
+
+This engagement touches PHI under PHIPA. Audit and traceability rest on the discipline encoded here. Every role enforces these.
+
+- **No real client/patient names, IDs, addresses, DOBs, health card numbers, or SINs in chat, prompts, specs, code, tests, or commit messages.** Use ticket IDs (FDE-XXXX), FR IDs (FR-XXXX:AC-Y), and synthetic identifiers ("Patient A", "Provider 1") instead.
+- **Test fixtures use synthetic data only.** Generated, not derived from real records. Fixtures live in `tests/fixtures/` and are reviewed for hygiene before commit.
+- **Real-data testing happens in AlayaCare staging environments**, not via Claude Code sessions. If you need to verify against real records, exit Claude Code, run the verification manually in the staging tool, and bring back only the *outcome* (pass/fail/observation) — not the data.
+- **Escalations cite IDs, not details.** "FR-0007:AC-2 ambiguous on retention behavior" — not "the issue with the record for [name]".
+- **If you encounter real PHI in a file you're asked to edit**, stop, do not commit, flag to the human supervisor. The PHI regex hook will also catch obvious patterns and block the write — treat any block as a hard stop, not a thing to work around.
+
+## Multi-agent execution model — Pattern 2 (Hybrid)
+
+This engagement uses three role-specialized contexts, separated by session boundary:
+
+- **Architect** — runs in a dedicated Claude Code session held open across the engagement. Owns FRs, ambiguity arbitration, ADRs. Launch with `claude --agent architect`.
+- **Developer** — invoked as a subagent inside an implementation session. Writes code under `src/`. Cannot write tests.
+- **Reviewer** — invoked as a subagent inside an implementation session. Verifies `@covers` traceability, runs tests, returns findings. Cannot write production code.
+
+Roles coordinate through artifacts (FR markdown + AC IDs + git PRs), never through chat history. Read the canonical role definitions in `.agent-team/roles/` for full responsibilities and boundaries. The `.claude/agents/` files are thin Claude Code wrappers that point to those role definitions.
+
+## Repository conventions
+
+- Specs live in `specs/` as `FR-XXXX-<slug>.md` with YAML frontmatter (see `specs/_template/`).
+- Acceptance criteria carry stable IDs (`AC-1`, `AC-2`, …) so tests can link via `@covers FR-XXXX:AC-Y`.
+- Source tags `@implements FR-XXXX` are required on production code; the indexer validates reverse-tag consistency.
+- Run `python scripts/index-specs.py` after spec edits to refresh `specs/INDEX.md`.
+- Run `python scripts/deploy-gate.py` before merging anything marked `deployed`.
+
+## Glossary
+
+> **[FILL IN]** — Three to five terms specific to this engagement that the agent will encounter. Example: "Pathways = Nova Scotia primary care system; HRM = NS document repository; CDA = Clinical Document Architecture."
+
+## What lives where, briefly
+
+```
+specs/                  # FRs (one per stakeholder-noticeable capability)
+src/                    # Implementation. @implements tags required.
+tests/                  # Tests. @covers FR-XXXX:AC-Y tags required.
+scripts/                # index-specs.py, deploy-gate.py, agent-status.py
+.agent-team/roles/      # Canonical role definitions (architect/developer/reviewer)
+.claude/agents/         # Claude Code subagent wrappers
+.claude/settings.json   # Hooks (validation, traceability, PHI regex)
+```
+
+## When in doubt
+
+- Ambiguous spec → escalate to Architect (not human, unless Architect is also unsure)
+- Missing test for AC → Reviewer self-remediates
+- Anything PHI-shaped that wasn't expected → stop, flag to human
+- Three Dev↔Reviewer cycles on one PR → escalate to human; the spec is probably wrong
