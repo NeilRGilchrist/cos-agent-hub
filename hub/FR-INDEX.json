@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-05-28T14:27:01+00:00",
+  "generated_at": "2026-05-28T14:50:22+00:00",
   "projects": [
     {
       "name": "ai-hub-poc",
@@ -330,7 +330,7 @@
       "updated": "2026-05-28",
       "rel_path": "projects\\ai-hub-poc\\specs\\FR-0012-finalize-gate-preflight.md",
       "branch": "main",
-      "committed": false,
+      "committed": true,
       "ahead_of_main": false,
       "worktree_path": null
     },
@@ -353,7 +353,7 @@
       "updated": "2026-05-28",
       "rel_path": "projects\\ai-hub-poc\\specs\\FR-0013-reconcile-fetch-before-flip.md",
       "branch": "main",
-      "committed": false,
+      "committed": true,
       "ahead_of_main": false,
       "worktree_path": null
     },

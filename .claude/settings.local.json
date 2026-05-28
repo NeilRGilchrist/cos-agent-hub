@@ -1,26 +1,23 @@
 {
   "permissions": {
     "allow": [
-      "mcp__ce0a63b3-78ea-400f-a257-a24012ec210d__getConfluencePage",
-      "Bash(python -c \"import yaml; print\\(yaml.__version__\\)\")",
-      "PowerShell(Get-Command python, python3, py, uv -ErrorAction SilentlyContinue)",
-      "Bash(bash scripts/deploy-gate.py)",
-      "Bash(python scripts/deploy-gate.py)",
-      "Bash(echo \"---exit $?---\")",
       "Bash(python scripts/hub-index.py)",
       "Bash(python scripts/parking.py reindex)",
       "Bash(python scripts/patterns.py reindex)",
-      "Bash(C:/Users/NeilGilchrist/AppData/Roaming/uv/python/cpython-3.12.13-windows-x86_64-none/python.exe scripts/hub-index.py)",
-      "Bash(C:/Users/NeilGilchrist/AppData/Roaming/uv/python/cpython-3.12.13-windows-x86_64-none/python.exe scripts/parking.py reindex)",
-      "Bash(C:/Users/NeilGilchrist/AppData/Roaming/uv/python/cpython-3.12.13-windows-x86_64-none/python.exe scripts/patterns.py reindex)",
-      "Read(//c/Users/NeilGilchrist/AppData/Roaming/uv/**)",
-      "Read(//c/Users/NeilGilchrist/.local/bin/**)",
-      "Bash(.venv/Scripts/python.exe scripts/hub-index.py)",
-      "Bash(.venv/Scripts/python.exe scripts/parking.py reindex)",
-      "Bash(.venv/Scripts/python.exe scripts/patterns.py reindex)",
-      "Bash(../../.venv/Scripts/python.exe scripts/index-specs.py)",
-      "Bash(python scripts/parking.py reflect)",
-      "Bash(python scripts/agent-status.py --all)"
+      "Bash(python scripts/patterns.py --help)",
+      "Bash(python scripts/patterns.py propose --help)",
+      "Bash(python scripts/parking.py --help)",
+      "Bash(python scripts/parking.py archive --help)",
+      "Bash(python scripts/parking.py promote --help)",
+      "Bash(python scripts/parking.py promote IDEA-0002 --to-fr ai-hub-poc/FR-0012)",
+      "Bash(python scripts/parking.py promote IDEA-0003 --to-fr ai-hub-poc/FR-0013)",
+      "PowerShell(python scripts/parking.py reindex; \"exit=$LASTEXITCODE\")",
+      "Bash(git -C projects/prototypes/prototypes status --short)",
+      "Bash(git -C projects/ai-hub-poc status --short)",
+      "Bash(git add *)",
+      "Bash(git rm *)",
+      "Bash(git commit -m ' *)",
+      "Bash(Remove-Item -Recurse -Force mnt)"
     ]
   }
 }

@@ -11,6 +11,7 @@ elsewhere — the project still gets registered in hub/projects.yaml.
 
 Flags (create mode):
   --stack python|node|none   Inject stack-specific conventions and CI (default: none)
+  --profile <name>           Activate a compliance profile (can be repeated; validated against profiles/)
   --private                  Mark project as private (excluded from cross-project pattern detection)
   --keep-example             Keep specs/FR-0001-example.md (default: delete it)
   --no-git                   Skip git init (default: init and make initial commit)
@@ -39,6 +40,7 @@ SLUG_RE = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
 
 HUB_ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE_ROOT = HUB_ROOT / "template"
+PROFILES_ROOT = HUB_ROOT / "profiles"
 
 # Infrastructure paths that --upgrade will sync from the template.
 # Note: `.claude` (not just `.claude/commands`) so settings.json — which wires
@@ -318,6 +320,94 @@ def generate_commands(target: Path) -> int:
     return generated
 
 
+def validate_profiles(profile_names: list[str]) -> list[str]:
+    """Validate that each profile name corresponds to a directory in profiles/."""
+    valid = []
+    for name in profile_names:
+        profile_dir = PROFILES_ROOT / name
+        if not profile_dir.is_dir():
+            available = [
+                d.name for d in PROFILES_ROOT.iterdir()
+                if d.is_dir() and not d.name.startswith(".")
+            ] if PROFILES_ROOT.is_dir() else []
+            die(
+                f"Unknown profile: '{name}'. "
+                f"Available profiles: {', '.join(available) or '(none)'}"
+            )
+        valid.append(name)
+    return valid
+
+
+def apply_profiles(target: Path, profile_names: list[str]) -> None:
+    """Overlay profile-specific files onto a bootstrapped project."""
+    import json
+
+    for name in profile_names:
+        profile_dir = PROFILES_ROOT / name
+        info(f"Applying profile: {name}")
+
+        if name == "phipa":
+            hook_src = profile_dir / "phi_regex_check.py"
+            if hook_src.exists():
+                hooks_dir = target / ".agent-team" / "hooks"
+                hooks_dir.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(hook_src, hooks_dir / "phi_regex_check.py")
+                info("  Copied phi_regex_check.py → .agent-team/hooks/")
+
+            hygiene_src = profile_dir / "phi_hygiene_block.md"
+            if hygiene_src.exists():
+                agents_md = target / "AGENTS.md"
+                if agents_md.exists():
+                    agents_text = agents_md.read_text(encoding="utf-8")
+                    hygiene_block = hygiene_src.read_text(encoding="utf-8").strip()
+                    marker = "## Universal rules"
+                    if marker in agents_text:
+                        agents_text = agents_text.replace(
+                            marker,
+                            hygiene_block + "\n\n" + marker,
+                        )
+                    else:
+                        agents_text = agents_text.rstrip() + "\n\n" + hygiene_block + "\n"
+                    agents_md.write_text(agents_text, encoding="utf-8")
+                    info("  Appended PHI hygiene block to AGENTS.md")
+
+            overlay_src = profile_dir / "settings_overlay.json"
+            if overlay_src.exists():
+                settings_path = target / ".claude" / "settings.json"
+                settings_path.parent.mkdir(parents=True, exist_ok=True)
+                if settings_path.exists():
+                    base = json.loads(settings_path.read_text(encoding="utf-8"))
+                else:
+                    base = {}
+                overlay = json.loads(overlay_src.read_text(encoding="utf-8"))
+                base = _merge_json(base, overlay)
+                settings_path.write_text(
+                    json.dumps(base, indent=2) + "\n", encoding="utf-8"
+                )
+                info("  Merged settings_overlay.json → .claude/settings.json")
+        else:
+            readme = profile_dir / "README.md"
+            if readme.exists():
+                info(f"  Profile '{name}' recognized (see {readme})")
+            else:
+                warn(f"  Profile '{name}' has no apply logic yet — skipped")
+
+    if profile_names:
+        print(f"\n  Profiles applied: {', '.join(profile_names)}")
+
+
+def _merge_json(base: dict, overlay: dict) -> dict:
+    """Recursively merge overlay into base, concatenating lists."""
+    for key, value in overlay.items():
+        if key in base and isinstance(base[key], dict) and isinstance(value, dict):
+            base[key] = _merge_json(base[key], value)
+        elif key in base and isinstance(base[key], list) and isinstance(value, list):
+            base[key] = base[key] + value
+        else:
+            base[key] = value
+    return base
+
+
 def register_project(
     hub_root: Path,
     project_name: str,
@@ -541,10 +631,14 @@ def run_create(args: argparse.Namespace) -> None:
     name_or_path: str = args.name
     description: str = args.description
     stack: str = args.stack
+    profiles: list[str] = args.profile
     keep_example: bool = args.keep_example
     do_git: bool = not args.no_git
     private: bool = args.private
     register: bool = not args.no_register
+
+    if profiles:
+        profiles = validate_profiles(profiles)
 
     # Determine target path and project name
     if os.sep not in name_or_path and "/" not in name_or_path and not name_or_path.startswith("."):
@@ -580,6 +674,10 @@ def run_create(args: argparse.Namespace) -> None:
         inject_stack(agents_md, stack)
         enable_cursor_rule(target / ".cursor" / "rules" / f"20-{stack}.mdc")
         uncomment_ci_job(target / ".github" / "workflows" / "agent-gates.yml", stack)
+
+    # Apply compliance profiles
+    if profiles:
+        apply_profiles(target, profiles)
 
     # Generate commands
     info("Generating .claude/commands/ and .cursor/commands/ from .agent-team/commands/")
@@ -701,6 +799,14 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["python", "node", "none"],
         default="none",
         help="Inject stack-specific conventions and CI (default: none).",
+    )
+    parser.add_argument(
+        "--profile",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help="Activate a compliance profile (can be repeated). "
+             "Validated against directories in profiles/.",
     )
     parser.add_argument(
         "--private",

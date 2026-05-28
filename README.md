@@ -2,6 +2,25 @@
 
 A workspace for running spec-driven agent crews across multiple projects, with a parking lot for cross-project ideas and a pattern catalog for compounding-value extraction.
 
+## Try it in 5 minutes
+
+```bash
+git clone https://github.com/NeilRGilchrist/cos-agent-hub.git
+cd cos-agent-hub
+pip install pyyaml
+
+# Bootstrap your first project
+python scripts/bootstrap.py my-first-project "My first agent-managed project" --stack python
+
+# Open the project in your IDE and start working with the agent team:
+# /architect — design a feature
+# /developer — implement it
+# /reviewer — get it reviewed
+# /deploy-gate — verify it's ready to ship
+```
+
+The agent team handles the spec → code → review cycle. You handle the "what" — they handle the "how."
+
 ## Layout
 
 ```
@@ -10,9 +29,9 @@ A workspace for running spec-driven agent crews across multiple projects, with a
 ├── parking-lot/            IDEA-NNNN files — ideas not ready to be projects yet
 ├── patterns/               PATTERN-NNNN files — reusable shapes extracted from clusters
 ├── projects/               bootstrapped projects (default location for new ones)
-├── template/               bootstrap source — used by scripts/bootstrap.sh
+├── template/               bootstrap source — used by scripts/bootstrap.py
 ├── scripts/                hub-level scripts
-│   ├── bootstrap.sh        stand up a new project
+│   ├── bootstrap.py        stand up a new project
 │   ├── hub-index.py        rebuild cross-project FR index
 │   ├── parking.py          IDEA CRUD
 │   └── patterns.py         PATTERN CRUD
@@ -54,7 +73,7 @@ Park an idea:
 Stand up a new project:
 
 ```
-scripts/bootstrap.sh helena-emr-mapper "Bidirectional EMR transformation layer." --stack python
+python scripts/bootstrap.py my-project "My cool project." --stack python
 ```
 
 Triage unstructured input:
@@ -71,7 +90,7 @@ See the workspace at a glance:
 
 ## Scripts (hub-level)
 
-- `scripts/bootstrap.sh <name> "<description>" [--stack python|node|none] [--private]` — bootstrap a project from `template/` and register it in `hub/projects.yaml`. Bare names land under `projects/<name>`; explicit paths can go anywhere.
+- `python scripts/bootstrap.py <name> "<description>" [--stack python|node|none] [--profile <name>] [--private]` — bootstrap a project from `template/` and register it in `hub/projects.yaml`. Bare names land under `projects/<name>`; explicit paths can go anywhere.
 - `scripts/hub-index.py` — walk every registered project and rebuild `hub/FR-INDEX.json`.
 - `scripts/parking.py <add|list|show|promote|merge|archive|reflect|reindex>` — IDEA CRUD.
 - `scripts/patterns.py <propose|list|show|accept|reject|mark-built|reindex>` — PATTERN CRUD.

@@ -55,7 +55,7 @@ Output:
 If the user picks new project:
 
 1. Confirm a project name (kebab-case slug) and stack (`python` / `node` / `none`).
-2. Run: `scripts/bootstrap.sh <name> "<value hypothesis or one-paragraph from IDEA>" --stack <stack>`
+2. Run: `python scripts/bootstrap.py <name> "<value hypothesis or one-paragraph from IDEA>" --stack <stack>`
 3. Update the IDEA: `python3 scripts/parking.py promote $ARGUMENTS --to-project <name>`
 4. After bootstrap, suggest the user `cd projects/<name>` and run `/architect <description>` for the first FR. The first FR should reference `derived_from: $ARGUMENTS`.
 

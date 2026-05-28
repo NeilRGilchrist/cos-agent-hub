@@ -14,7 +14,7 @@ parked  ──promote──▶  active FR or new project (status: promoted)
 
 ## When to add an idea
 
-Use `/park <idea>` from any Cowork session. The slash command captures the idea, auto-tags it, asks for a value hypothesis, and writes the file. Do not write IDEA files by hand — the IDs are allocated by `scripts/parking.py` and need to stay sequential.
+Use `/park <idea>` from any agent session. The slash command captures the idea, auto-tags it, asks for a value hypothesis, and writes the file. Do not write IDEA files by hand — the IDs are allocated by `scripts/parking.py` and need to stay sequential.
 
 ## Reflection cadence
 

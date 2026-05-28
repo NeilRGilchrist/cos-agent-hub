@@ -36,7 +36,7 @@ Decide which of the following the input is. Use Claude judgment, but be explicit
 1. **Chat answer.** The input is a question Claude can answer directly without invoking the team or modifying any artifact. Answer it and stop. Do not park questions as ideas.
 2. **Park.** The input is a half-formed idea that's not worth a project right now but worth keeping. Use `python3 scripts/parking.py add ...` to create the IDEA. Auto-suggest tags based on content; auto-extract a one-sentence value hypothesis if the input contains one, otherwise ask for one before parking.
 3. **Promote to FR in an existing project.** The input maps cleanly onto an existing project. Identify which project, propose what FR to draft, and recommend the user run `/architect <description>` from inside that project. Do not draft the FR yourself.
-4. **Promote to a new project.** The input is substantial enough to be its own project. Recommend `scripts/bootstrap.sh <name> "<description>" --stack <stack>`. Ask the user for the stack if it's not obvious.
+4. **Promote to a new project.** The input is substantial enough to be its own project. Recommend `python scripts/bootstrap.py <name> "<description>" --stack <stack>`. Ask the user for the stack if it's not obvious.
 5. **Merge with existing parked idea.** The input semantically duplicates or extends an existing IDEA. Surface the candidate and ask whether to merge (append to the existing IDEA's notes) or keep separate.
 6. **Pattern signal.** The input, combined with parked ideas or active FRs, suggests a pattern candidate. Run the synthesis routine in `/patterns` before triaging — if a pattern emerges, propose it.
 
@@ -80,7 +80,7 @@ Proposed action:
 Confirm? (yes / edit / cancel)
 ```
 
-Only invoke `parking.py`, `bootstrap.sh`, or anything else **after the user confirms**. No auto mode in v1.
+Only invoke `parking.py`, `bootstrap.py`, or anything else **after the user confirms**. No auto mode in v1.
 
 ## Stale-idea reflection
 

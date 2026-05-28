@@ -162,7 +162,7 @@ Every change traces to a **Functional Requirement** (FR) with **Acceptance Crite
 
 ```
 FR-0013: Add canonical visit mapper
-  AC-1: Maps AlayaCare visit to canonical Visit model
+  AC-1: Maps external visit record to canonical Visit model
   AC-2: Handles missing optional fields gracefully
   AC-3: Rejects visits with no patient identifier
 ```
@@ -220,4 +220,4 @@ python scripts/agent-status.py --all
 - `.agent-team/roles/developer.md` — Developer role definition
 - `.agent-team/roles/reviewer.md` — Reviewer role definition
 - `.agent-team/escalation-matrix.md` — When and how to escalate
-- `REVIEW.md` — Comprehensive review with findings and recommendations
+- `CONTRIBUTING.md` — How to contribute to this hub

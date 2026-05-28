@@ -30,7 +30,7 @@ Agents do not pass conversation history. They produce and consume **artifacts** 
 - `/gate [--stage dev|review|full]` — run the merge gate locally
 - `/escalate <reason>` — emit a structured human-bound escalation
 
-The hub-level commands (`/cos`, `/park`, `/promote`, `/patterns`, `/hub-status`) live at the workspace hub, not inside this project. To use them, switch your Cowork session to the hub directory.
+The hub-level commands (`/cos`, `/park`, `/promote`, `/patterns`, `/hub-status`) live at the workspace hub, not inside this project. To use them, switch your session to the hub directory.
 
 ## Layout
 

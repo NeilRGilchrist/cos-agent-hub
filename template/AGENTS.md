@@ -2,7 +2,7 @@
 
 This file is read by every agent at the start of every session. Keep it short. Anything project-specific that doesn't fit here belongs in a spec file under `specs/`.
 
-> **⚠️ TEMPLATE — NOT YET CONFIGURED.** The sections below contain `<<REPLACE: …>>` markers. If you are an agent reading this and you see any of those markers, the project has not been bootstrapped yet. **Stop work** and ask the human to run `scripts/bootstrap.sh <project-name>` (from a fresh copy of the template) or to fill the markers in by hand. Do not invent project context to fill the gaps. Once every marker is gone, delete this warning block.
+> **⚠️ TEMPLATE — NOT YET CONFIGURED.** The sections below contain `<<REPLACE: …>>` markers. If you are an agent reading this and you see any of those markers, the project has not been bootstrapped yet. **Stop work** and ask the human to run `python scripts/bootstrap.py <project-name>` (from the hub root) or to fill the markers in by hand. Do not invent project context to fill the gaps. Once every marker is gone, delete this warning block.
 
 ## What you are working on
 
@@ -20,17 +20,15 @@ Before doing anything, identify which role you are operating in:
 
 If the user has not told you which role, ask. Do not default — role determines what you are allowed to write to.
 
-## PHI hygiene (non-negotiable — applies if this project touches PHIPA-regulated data)
+## Data hygiene
 
-This template is provisioned by default for AlayaCare FDE engagements that may touch PHI. The hooks under `.agent-team/hooks/` and the wired `.claude/settings.json` enforce this defensively. If this specific project genuinely does not touch PHI, you may disable the hooks (edit `.claude/settings.json`) — but that decision is the human's, not the agent's.
+If this project was bootstrapped with a compliance profile (e.g., `--profile phipa`), additional data hygiene rules and automated hooks are active. Check `.agent-team/hooks/` and `.claude/settings.json` for any profile-specific enforcement.
 
-While this block remains, every role enforces these:
+Regardless of profile, every role follows these baseline rules:
 
-- **No real client/patient names, IDs, addresses, DOBs, health card numbers, or SINs in chat, prompts, specs, code, tests, or commit messages.** Use ticket IDs (FDE-XXXX), FR IDs (FR-XXXX:AC-Y), and synthetic identifiers ("Patient A", "Provider 1") instead.
-- **Test fixtures use synthetic data only.** Generated, not derived from real records. Fixtures live in `tests/fixtures/` and are reviewed for hygiene before commit.
-- **Real-data testing happens in AlayaCare staging environments**, not via agent sessions. If you need to verify against real records, exit the agent session, run the verification manually in the staging tool, and bring back only the *outcome* (pass/fail/observation) — not the data.
-- **Escalations cite IDs, not details.** "FR-0007:AC-2 ambiguous on retention behavior" — not "the issue with the record for [name]".
-- **If you encounter real PHI in a file you're asked to edit**, stop, do not commit, flag to the human supervisor. The `phi_regex_check.py` hook will also catch obvious patterns and block the write — treat any block as a hard stop, not a thing to work around.
+- **Use synthetic data in test fixtures.** Generated, not derived from real records. Fixtures live in `tests/fixtures/`.
+- **Escalations cite IDs, not details.** "FR-0007:AC-2 ambiguous on retention behavior" — not specifics about real users or records.
+- **If you encounter sensitive data in a file you're asked to edit**, stop, do not commit, flag to the human supervisor.
 
 ## Universal rules (all roles)
 
@@ -44,9 +42,7 @@ While this block remains, every role enforces these:
 
 5. **Iteration budget: 3 cycles.** If a Dev↔Reviewer loop hits 3 round-trips on the same FR, force-escalate to human. The spec is probably wrong.
 
-6. **Run the gate before claiming done.** `python3 scripts/deploy-gate.py` must pass before any role declares work complete.
-
-7. **PHI never enters chat or commits.** Cited above; reinforced here so it lives next to the other universal rules.
+6. **Run the gate before claiming done.** `python scripts/deploy-gate.py` must pass before any role declares work complete.
 
 ## Project conventions
 
@@ -79,8 +75,8 @@ Examples (replace with real references, then delete this block):
 
 ## Files you should never edit without explicit human approval
 
-- `.agent-team/**` — role definitions, escalation rules, and PHI hooks
-- `.claude/settings.json` — hook wiring (PHI regex, spec validation, deploy-gate report)
+- `.agent-team/**` — role definitions, escalation rules, and hooks
+- `.claude/settings.json` — hook wiring (spec validation, deploy-gate report)
 - `scripts/deploy-gate.py` — the merge gate
 - `scripts/index-specs.py` — the spec indexer
 - This file (`AGENTS.md` / `CLAUDE.md`)

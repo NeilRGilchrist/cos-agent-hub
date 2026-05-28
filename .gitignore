@@ -16,3 +16,9 @@ __pycache__/
 
 # Sandbox leftover from hub promotion — empty dir that resists removal
 /agent-team-template/
+
+# Out-of-tree prototype with its own git history
+/projects/prototypes/prototypes/
+
+# Local user data (never committed)
+/mnt/user-data/

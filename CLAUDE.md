@@ -12,19 +12,25 @@ The hub is where unstructured ideas, half-formed plans, and pattern signals get 
 
 When you're working *inside a project* (`projects/<name>/` or any path registered in `hub/projects.yaml`), the role-based work happens there. When you're working *at the hub level* (here), you're triaging, reflecting, or surfacing patterns.
 
-Hub operations are Claude Code / Cowork-first by design. Bootstrapped projects are the portability layer: they use `AGENTS.md` as canonical content and add harness-specific wrappers under `.claude/` and `.cursor/`.
+Hub operations are Claude Code / Cursor-first by design. Bootstrapped projects are the portability layer: they use `AGENTS.md` as canonical content and add harness-specific wrappers under `.claude/` and `.cursor/`.
 
-## AlayaCare engagement context
+## Compliance profiles
 
-This hub is provisioned for AlayaCare FDE work. The default project shape (under `template/`) assumes PHIPA-regulated PHI may be in scope. The PHI hygiene block in `template/AGENTS.md`, the hooks in `template/.agent-team/hooks/`, and the wired `template/.claude/settings.json` are the defensive defaults. Projects that genuinely do not touch PHI can opt out by editing `.claude/settings.json` after bootstrap — but the default is opt-in, on purpose.
+The hub supports opt-in compliance profiles for regulated industries. Profiles add data-hygiene hooks, settings overlays, and documentation blocks to bootstrapped projects. By default, projects have no industry-specific restrictions — profiles are activated during bootstrap with `--profile <name>`.
 
-Real PHI never enters this hub directory, this chat, or any commit. Use ticket IDs (FDE-XXXX), FR IDs (FR-XXXX:AC-Y), and synthetic identifiers ("Patient A", "Provider 1"). See `hub/docs/PORTING-NOTES.md` for the full hygiene rationale and the original Pattern 2 Hybrid port history.
+Available profiles:
+
+- **`phipa`** — for healthcare projects handling data regulated under PHIPA (or equivalent healthcare privacy legislation). Adds a PHI regex hook, settings overlay, and hygiene documentation block. See `profiles/phipa/README.md` for details.
+
+To add a new profile, create `profiles/<name>/` with the required files (see `CONTRIBUTING.md`).
+
+Regardless of profile, real PHI/PII never enters this hub directory, chat sessions, or commits. Use ticket IDs, FR IDs (FR-XXXX:AC-Y), and synthetic identifiers ("Patient A", "Provider 1").
 
 ## Cross-platform support
 
 All hub-level scripts are Python and work natively on Windows, macOS, and Linux:
 
-- `scripts/bootstrap.py` — project creation and upgrade (cross-platform; `bootstrap.sh` is a thin bash wrapper for backward compatibility)
+- `scripts/bootstrap.py` — project creation and upgrade (cross-platform)
 - `scripts/hub-index.py`, `scripts/parking.py`, `scripts/patterns.py` — all Python, no platform restrictions
 
 Prerequisites: Python 3.11+ and `pyyaml` (`pip install pyyaml`). See `GETTING-STARTED.md` for full setup instructions.
@@ -55,13 +61,13 @@ python scripts/patterns.py <propose|list|show|accept|reject|mark-built|reindex>
 4. **Propose-and-confirm at the hub.** `/cos`, `/promote`, and `/patterns` always propose actions and wait for explicit confirmation before invoking anything. There is no auto-mode.
 5. **Compounding-value discipline.** Patterns require a substantive compounding-value hypothesis. "These are all about data" is not a hypothesis. Concrete claims with rough math.
 6. **Serial execution.** Hub scripts (`hub-index.py`, `parking.py`, `patterns.py`) assume serial execution — they read, mutate, and rewrite shared files without locking. Do not run them in parallel; concurrent invocations can corrupt indexes or lose writes.
-7. **PHI never enters chat or commits.** See engagement context above and `template/AGENTS.md` for project-level enforcement.
+7. **Sensitive data never enters chat or commits.** See compliance profiles above and `template/AGENTS.md` for project-level enforcement.
 
 ## Files you should never edit without explicit human approval
 
 - `template/.agent-team/**` — role definitions, escalation rules, and hooks (project-level defaults)
 - `template/scripts/{deploy-gate.py,index-specs.py,agent-status.py}` — the merge gate and indexer (project-level)
-- `scripts/{bootstrap.py,bootstrap.sh,hub-index.py,parking.py,patterns.py}` — hub-level scripts
+- `scripts/{bootstrap.py,hub-index.py,parking.py,patterns.py}` — hub-level scripts
 - `.claude/commands/**` and `template/.claude/commands/**` — the slash commands encoding role contracts
 - `template/AGENTS.md` and `template/CLAUDE.md` — project-level working agreement and Claude pointer
 - This file (`CLAUDE.md`)
