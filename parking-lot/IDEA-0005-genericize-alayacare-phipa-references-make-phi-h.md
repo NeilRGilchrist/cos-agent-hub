@@ -1,7 +1,7 @@
 ---
 id: IDEA-0005
 title: Genericize AlayaCare/PHIPA references — make PHI hygiene opt-in
-status: parked
+status: archived
 tags: []
 size: M
 created: '2026-05-28'
@@ -9,9 +9,8 @@ updated: '2026-05-28'
 last_reviewed: '2026-05-28'
 promoted_to: null
 pattern: null
-archive_reason: null
+archive_reason: 'Implemented: compliance profiles with opt-in phipa profile'
 ---
-
 # IDEA-0005: Genericize AlayaCare/PHIPA references — make PHI hygiene opt-in
 
 ## Description
