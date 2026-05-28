@@ -9,3 +9,10 @@ __pycache__/
 .venv/
 .bootstrap-venv/
 .ruff_cache/
+
+# Out-of-tree projects with their own git history
+# (registered in hub/projects.yaml; not tracked by the hub repo)
+/ac-pmi-main/
+
+# Sandbox leftover from hub promotion — empty dir that resists removal
+/agent-team-template/

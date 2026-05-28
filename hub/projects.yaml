@@ -12,7 +12,12 @@
 
 projects:
 - name: ai-hub-poc
-  path: projects\ai-hub-poc
+  path: projects/ai-hub-poc
   created: '2026-05-04'
+  stack: python
+  private: false
+- name: pm-graph-poc
+  path: ac-pmi-main/pm-graph-poc
+  created: '2026-05-03'
   stack: python
   private: false
