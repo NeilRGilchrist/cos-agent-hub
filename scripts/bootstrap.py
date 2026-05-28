@@ -41,11 +41,15 @@ HUB_ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE_ROOT = HUB_ROOT / "template"
 
 # Infrastructure paths that --upgrade will sync from the template.
+# Note: `.claude` (not just `.claude/commands`) so settings.json — which wires
+# the PHI/spec hooks — propagates on upgrade. `.claude/worktrees/` is created
+# per-project at bootstrap time and does not exist in the template, so it is
+# safe to include the full `.claude` subtree.
 INFRA_DIRS = [
     ".agent-team",
     "scripts",
     ".github/workflows",
-    ".claude/commands",
+    ".claude",
     ".cursor/commands",
     ".cursor/rules",
 ]
@@ -109,7 +113,7 @@ def warn(msg: str) -> None:
 
 
 def info(msg: str) -> None:
-    print(f"→ {msg}")
+    print(f"-> {msg}")
 
 
 def validate_slug(name: str) -> None:
@@ -161,7 +165,7 @@ def substitute_description(agents_md: Path, description: str) -> None:
     text = agents_md.read_text(encoding="utf-8")
     marker = "<<REPLACE: ONE_PARAGRAPH_PROJECT_DESCRIPTION>>"
     if marker not in text:
-        warn(f"Marker '{marker}' not found in AGENTS.md — already filled?")
+        warn(f"Marker '{marker}' not found in AGENTS.md -- already filled?")
     else:
         text = text.replace(marker, description)
 
@@ -260,7 +264,7 @@ def uncomment_ci_job(workflow_path: Path, stack: str) -> None:
             out.append(line)
 
     if not found:
-        warn(f"'{marker}' block not found in agent-gates.yml — skipping CI uncomment")
+        warn(f"'{marker}' block not found in agent-gates.yml -- skipping CI uncomment")
 
     workflow_path.write_text("\n".join(out) + "\n", encoding="utf-8")
 
@@ -402,7 +406,7 @@ def git_init(target: Path) -> None:
         )
     except subprocess.CalledProcessError:
         warn(
-            "Initial commit skipped — configure git user.name/user.email "
+            "Initial commit skipped -- configure git user.name/user.email "
             "and commit manually."
         )
 
@@ -672,7 +676,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--upgrade",
         metavar="PROJECT_PATH",
         help="Propagate template infrastructure changes to an existing project. "
-             "Diffs .agent-team/, scripts/, .github/workflows/, .claude/commands/, "
+             "Diffs .agent-team/, scripts/, .github/workflows/, .claude/, "
              ".cursor/commands/, .cursor/rules/, and specs/_template/ against the "
              "template and offers to update divergent files.",
     )
