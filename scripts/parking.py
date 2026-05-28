@@ -207,7 +207,7 @@ def cmd_show(args: argparse.Namespace) -> int:
 def cmd_promote(args: argparse.Namespace) -> int:
     idea = load_idea(args.idea_id)
     if idea.status != "parked":
-        print(f"WARN: {idea.id} is currently '{idea.status}', not 'parked' — proceeding anyway", file=sys.stderr)
+        print(f"WARN: {idea.id} is currently '{idea.status}', not 'parked' -- proceeding anyway", file=sys.stderr)
 
     if args.to_fr:
         idea.meta["promoted_to"] = args.to_fr
@@ -221,7 +221,7 @@ def cmd_promote(args: argparse.Namespace) -> int:
 
     idea.meta["last_reviewed"] = today()
     write_idea(idea)
-    print(f"Marked {idea.id} as promoted → {idea.meta['promoted_to']}")
+    print(f"Marked {idea.id} as promoted -> {idea.meta['promoted_to']}")
     reindex()
     return 0
 

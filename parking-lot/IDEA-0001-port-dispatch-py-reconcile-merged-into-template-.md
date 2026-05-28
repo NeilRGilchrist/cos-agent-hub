@@ -1,7 +1,7 @@
 ---
 id: IDEA-0001
 title: Port dispatch.py + reconcile-merged into template/scripts/
-status: parked
+status: archived
 tags:
 - tooling
 - template
@@ -9,13 +9,15 @@ tags:
 - workflow
 size: M
 created: '2026-05-06'
-updated: '2026-05-06'
-last_reviewed: '2026-05-06'
+updated: '2026-05-28'
+last_reviewed: '2026-05-28'
 promoted_to: null
 pattern: null
-archive_reason: null
+archive_reason: 'Already implemented: dispatch.py + reconcile-merged ported to template/scripts/dispatch.py
+  (byte-identical to projects/ai-hub-poc/scripts/dispatch.py) in commit 5a467c8. Template/AGENTS.md
+  reflects the role-cycle workflow. Open questions from the IDEA (canonical vs drift,
+  post-merge hook, third harness adapter) can be raised as follow-up FRs if/when needed.'
 ---
-
 # IDEA-0001: Port dispatch.py + reconcile-merged into template/scripts/
 
 ## Description

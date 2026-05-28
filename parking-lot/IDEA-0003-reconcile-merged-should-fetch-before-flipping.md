@@ -1,7 +1,7 @@
 ---
 id: IDEA-0003
 title: reconcile-merged should fetch before flipping
-status: parked
+status: promoted
 tags:
 - dispatcher
 - workflow
@@ -9,13 +9,12 @@ tags:
 - robustness
 size: S
 created: '2026-05-06'
-updated: '2026-05-06'
-last_reviewed: '2026-05-06'
-promoted_to: null
+updated: '2026-05-28'
+last_reviewed: '2026-05-28'
+promoted_to: ai-hub-poc/FR-0013
 pattern: null
 archive_reason: null
 ---
-
 # IDEA-0003: reconcile-merged should fetch before flipping
 
 ## Description

@@ -200,7 +200,7 @@ def cmd_list(args: argparse.Namespace) -> int:
     print(f"{'ID':<14} {'Status':<10} {'Tags':<24} Name")
     print("-" * 80)
     for p in sorted(patterns, key=lambda x: x.id):
-        tags = ",".join(p.tags) if p.tags else "—"
+        tags = ",".join(p.tags) if p.tags else "-"
         print(f"{p.id:<14} {p.status:<10} {tags:<24} {p.name}")
     return 0
 
