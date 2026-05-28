@@ -20,6 +20,18 @@ Before doing anything, identify which role you are operating in:
 
 If the user has not told you which role, ask. Do not default — role determines what you are allowed to write to.
 
+## PHI hygiene (non-negotiable — applies if this project touches PHIPA-regulated data)
+
+This template is provisioned by default for AlayaCare FDE engagements that may touch PHI. The hooks under `.agent-team/hooks/` and the wired `.claude/settings.json` enforce this defensively. If this specific project genuinely does not touch PHI, you may disable the hooks (edit `.claude/settings.json`) — but that decision is the human's, not the agent's.
+
+While this block remains, every role enforces these:
+
+- **No real client/patient names, IDs, addresses, DOBs, health card numbers, or SINs in chat, prompts, specs, code, tests, or commit messages.** Use ticket IDs (FDE-XXXX), FR IDs (FR-XXXX:AC-Y), and synthetic identifiers ("Patient A", "Provider 1") instead.
+- **Test fixtures use synthetic data only.** Generated, not derived from real records. Fixtures live in `tests/fixtures/` and are reviewed for hygiene before commit.
+- **Real-data testing happens in AlayaCare staging environments**, not via agent sessions. If you need to verify against real records, exit the agent session, run the verification manually in the staging tool, and bring back only the *outcome* (pass/fail/observation) — not the data.
+- **Escalations cite IDs, not details.** "FR-0007:AC-2 ambiguous on retention behavior" — not "the issue with the record for [name]".
+- **If you encounter real PHI in a file you're asked to edit**, stop, do not commit, flag to the human supervisor. The `phi_regex_check.py` hook will also catch obvious patterns and block the write — treat any block as a hard stop, not a thing to work around.
+
 ## Universal rules (all roles)
 
 1. **Spec graph is the source of truth.** Every change traces to a Functional Requirement (FR) and one or more Acceptance Criteria (AC). No code changes without an FR.
@@ -33,6 +45,8 @@ If the user has not told you which role, ask. Do not default — role determines
 5. **Iteration budget: 3 cycles.** If a Dev↔Reviewer loop hits 3 round-trips on the same FR, force-escalate to human. The spec is probably wrong.
 
 6. **Run the gate before claiming done.** `python3 scripts/deploy-gate.py` must pass before any role declares work complete.
+
+7. **PHI never enters chat or commits.** Cited above; reinforced here so it lives next to the other universal rules.
 
 ## Project conventions
 
@@ -65,9 +79,10 @@ Examples (replace with real references, then delete this block):
 
 ## Files you should never edit without explicit human approval
 
-- `.agent-team/**` — role definitions and escalation rules
+- `.agent-team/**` — role definitions, escalation rules, and PHI hooks
+- `.claude/settings.json` — hook wiring (PHI regex, spec validation, deploy-gate report)
 - `scripts/deploy-gate.py` — the merge gate
 - `scripts/index-specs.py` — the spec indexer
-- This file (`CLAUDE.md`)
+- This file (`AGENTS.md` / `CLAUDE.md`)
 
 If a task seems to require editing these, escalate first.
