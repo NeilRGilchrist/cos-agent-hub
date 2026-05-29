@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-05-28T14:50:22+00:00",
+  "generated_at": "2026-05-29T13:32:23+00:00",
   "projects": [
     {
       "name": "ai-hub-poc",
@@ -8,7 +8,7 @@
       "stack": "python",
       "private": false,
       "exists": true,
-      "fr_count": 13,
+      "fr_count": 19,
       "indexed": true,
       "worktree_count": 0,
       "in_flight_fr_count": 0
@@ -236,7 +236,7 @@
       "project": "ai-hub-poc",
       "fr_id": "FR-0009",
       "title": "Extraction Agent (Anthropic SDK Tool-Use)",
-      "status": "ready",
+      "status": "merged",
       "owner": "architect",
       "tags": [
         "extraction",
@@ -254,7 +254,7 @@
       "derived_from": null,
       "pattern": null,
       "created": "2026-05-04",
-      "updated": "2026-05-05",
+      "updated": "2026-05-06",
       "rel_path": "projects\\ai-hub-poc\\specs\\FR-0009-extraction-agent.md",
       "branch": "main",
       "committed": true,
@@ -265,7 +265,7 @@
       "project": "ai-hub-poc",
       "fr_id": "FR-0010",
       "title": "Knowledge Graph Projection Schema (Neo4j)",
-      "status": "ready",
+      "status": "merged",
       "owner": "architect",
       "tags": [
         "knowledge-graph",
@@ -282,7 +282,7 @@
       "derived_from": null,
       "pattern": null,
       "created": "2026-05-04",
-      "updated": "2026-05-05",
+      "updated": "2026-05-06",
       "rel_path": "projects\\ai-hub-poc\\specs\\FR-0010-kg-projection-schema.md",
       "branch": "main",
       "committed": true,
@@ -315,7 +315,7 @@
       "project": "ai-hub-poc",
       "fr_id": "FR-0012",
       "title": "Finalize gates on deploy-gate before opening or un-drafting a PR",
-      "status": "draft",
+      "status": "merged",
       "owner": "architect",
       "tags": [
         "dispatcher",
@@ -338,7 +338,7 @@
       "project": "ai-hub-poc",
       "fr_id": "FR-0013",
       "title": "reconcile-merged fetches origin/main and refuses to flip when local is behind",
-      "status": "draft",
+      "status": "merged",
       "owner": "architect",
       "tags": [
         "dispatcher",
@@ -352,6 +352,173 @@
       "created": "2026-05-28",
       "updated": "2026-05-28",
       "rel_path": "projects\\ai-hub-poc\\specs\\FR-0013-reconcile-fetch-before-flip.md",
+      "branch": "main",
+      "committed": true,
+      "ahead_of_main": false,
+      "worktree_path": null
+    },
+    {
+      "project": "ai-hub-poc",
+      "fr_id": "FR-0014",
+      "title": "Containerized Runtime Stack (Docker Compose + AWS ECS)",
+      "status": "ready",
+      "owner": "architect",
+      "tags": [
+        "deployment",
+        "docker",
+        "aws",
+        "ecs",
+        "local-dev",
+        "infrastructure"
+      ],
+      "depends_on": [
+        "FR-0004",
+        "FR-0006",
+        "FR-0009",
+        "FR-0010"
+      ],
+      "derived_from": null,
+      "pattern": null,
+      "created": "2026-05-28",
+      "updated": "2026-05-28",
+      "rel_path": "projects\\ai-hub-poc\\specs\\FR-0014-containerized-runtime-aws.md",
+      "branch": "main",
+      "committed": true,
+      "ahead_of_main": false,
+      "worktree_path": null
+    },
+    {
+      "project": "ai-hub-poc",
+      "fr_id": "FR-0015",
+      "title": "Fathom MCP Dev Harness (Cursor + cursor-agent)",
+      "status": "ready",
+      "owner": "architect",
+      "tags": [
+        "dev-harness",
+        "mcp",
+        "fathom",
+        "testing",
+        "cursor"
+      ],
+      "depends_on": [
+        "FR-0006"
+      ],
+      "derived_from": null,
+      "pattern": null,
+      "created": "2026-05-28",
+      "updated": "2026-05-28",
+      "rel_path": "projects\\ai-hub-poc\\specs\\FR-0015-fathom-mcp-dev-harness.md",
+      "branch": "main",
+      "committed": true,
+      "ahead_of_main": false,
+      "worktree_path": null
+    },
+    {
+      "project": "ai-hub-poc",
+      "fr_id": "FR-0016",
+      "title": "Human Review Event Contract and Provenance",
+      "status": "ready",
+      "owner": "architect",
+      "tags": [
+        "human-review",
+        "hitl",
+        "audit",
+        "provenance",
+        "layer-4"
+      ],
+      "depends_on": [
+        "FR-0007",
+        "FR-0009",
+        "FR-0010"
+      ],
+      "derived_from": null,
+      "pattern": null,
+      "created": "2026-05-29",
+      "updated": "2026-05-29",
+      "rel_path": "projects\\ai-hub-poc\\specs\\FR-0016-human-review-event-contract.md",
+      "branch": "main",
+      "committed": true,
+      "ahead_of_main": false,
+      "worktree_path": null
+    },
+    {
+      "project": "ai-hub-poc",
+      "fr_id": "FR-0017",
+      "title": "Review Read Surface (Pending ReviewTask Query API)",
+      "status": "ready",
+      "owner": "architect",
+      "tags": [
+        "human-review",
+        "hitl",
+        "read-api",
+        "neo4j",
+        "layer-4"
+      ],
+      "depends_on": [
+        "FR-0010",
+        "FR-0016"
+      ],
+      "derived_from": null,
+      "pattern": null,
+      "created": "2026-05-29",
+      "updated": "2026-05-29",
+      "rel_path": "projects\\ai-hub-poc\\specs\\FR-0017-review-read-surface.md",
+      "branch": "main",
+      "committed": true,
+      "ahead_of_main": false,
+      "worktree_path": null
+    },
+    {
+      "project": "ai-hub-poc",
+      "fr_id": "FR-0018",
+      "title": "Review Write-Back Service and KG Application",
+      "status": "ready",
+      "owner": "architect",
+      "tags": [
+        "human-review",
+        "hitl",
+        "write-back",
+        "neo4j",
+        "audit",
+        "layer-4"
+      ],
+      "depends_on": [
+        "FR-0016",
+        "FR-0017",
+        "FR-0010"
+      ],
+      "derived_from": null,
+      "pattern": null,
+      "created": "2026-05-29",
+      "updated": "2026-05-29",
+      "rel_path": "projects\\ai-hub-poc\\specs\\FR-0018-review-write-back-kg.md",
+      "branch": "main",
+      "committed": true,
+      "ahead_of_main": false,
+      "worktree_path": null
+    },
+    {
+      "project": "ai-hub-poc",
+      "fr_id": "FR-0019",
+      "title": "Slack Human Review Client",
+      "status": "ready",
+      "owner": "architect",
+      "tags": [
+        "human-review",
+        "slack",
+        "hitl",
+        "ui",
+        "layer-4"
+      ],
+      "depends_on": [
+        "FR-0017",
+        "FR-0018"
+      ],
+      "derived_from": null,
+      "pattern": null,
+      "created": "2026-05-29",
+      "updated": "2026-05-29",
+      "rel_path": "projects\\ai-hub-poc\\specs\\FR-0019-slack-human-review-client.md",
       "branch": "main",
       "committed": true,
       "ahead_of_main": false,
