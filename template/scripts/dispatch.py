@@ -127,6 +127,14 @@ SLASH_COMMAND_NAMES = {
 
 DEFAULT_HARNESS = os.environ.get("DISPATCH_HARNESS", "claude-code")
 
+# Worktree venv configuration. Override via environment variables or edit
+# these defaults to match your project's dependency footprint. Defined here
+# (before the adapter classes) because ROLE_PERMISSIONS interpolates
+# VENV_DIRNAME at class-definition time.
+VENV_DIRNAME = os.environ.get("DISPATCH_VENV_DIRNAME", ".venv-dispatch")
+VENV_PACKAGES = (os.environ.get("DISPATCH_VENV_PACKAGES") or "pyyaml,ruff,pytest").split(",")
+VENV_PYTHON_VERSION = os.environ.get("DISPATCH_VENV_PYTHON", "3.11")
+
 
 # ---------------------------------------------------------------------------
 # Harness adapter abstraction
@@ -155,6 +163,7 @@ class HarnessAdapter(Protocol):
         role: str,
         wt_path: Path,
         log_path: Path,
+        extra_prompt: str | None = None,
     ) -> tuple[str, int | None]: ...
     def parse_log(self, log_path: Path) -> AgentLogSummary: ...
     def dry_run_preview(self, fr_id: str, role: str, wt_preview: Path) -> str: ...
@@ -224,6 +233,27 @@ class ClaudeCodeAdapter:
                 "Write(tests/fixtures/**)",
                 "Edit(tests/conftest.py)",
                 "Write(tests/conftest.py)",
+                # Docker, deploy, and infrastructure config files
+                "Edit(deploy/**)",
+                "Write(deploy/**)",
+                "Edit(.dockerignore)",
+                "Write(.dockerignore)",
+                "Edit(Dockerfile*)",
+                "Write(Dockerfile*)",
+                "Edit(docker-compose*)",
+                "Write(docker-compose*)",
+                "Edit(*.yaml)",
+                "Write(*.yaml)",
+                "Edit(*.yml)",
+                "Write(*.yml)",
+                "Edit(*.toml)",
+                "Write(*.toml)",
+                "Edit(*.cfg)",
+                "Write(*.cfg)",
+                "Edit(*.txt)",
+                "Write(*.txt)",
+                "Edit(*.sh)",
+                "Write(*.sh)",
                 # Python / venv / test runners — both system python and the
                 # pre-provisioned worktree venv (see VENV_DIRNAME)
                 "Bash(python *)",
@@ -437,15 +467,22 @@ class ClaudeCodeAdapter:
         role: str,
         wt_path: Path,
         log_path: Path,
+        extra_prompt: str | None = None,
     ) -> tuple[str, int | None]:
         claude_bin = shutil.which(self.binary_name)
         if claude_bin is None:
             return ("binary-not-found", None)
         slash = SLASH_COMMAND_NAMES.get(role, role)
+        # `extra_prompt` carries a generated rework brief on kick-back rounds.
+        # It is appended after the slash invocation on its own lines so
+        # `$ARGUMENTS` still resolves to the bare FR id.
+        prompt = f"/{slash} {fr_id}"
+        if extra_prompt:
+            prompt = f"{prompt}\n\n{extra_prompt}"
         cmd = [
             claude_bin,
             "-p",
-            f"/{slash} {fr_id}",
+            prompt,
             "--output-format",
             "stream-json",
             "--verbose",
@@ -702,11 +739,18 @@ class CursorAdapter:
         role: str,
         wt_path: Path,
         log_path: Path,
+        extra_prompt: str | None = None,
     ) -> tuple[str, int | None]:
         cursor_bin = shutil.which(self.binary_name)
         if cursor_bin is None:
             return ("binary-not-found", None)
         prompt = self._render_prompt(fr_id, role)
+        # A generated rework brief is appended to the rendered role prompt. The
+        # node-entrypoint path below preserves multi-line argv on Windows, so
+        # the brief survives the shim-truncation quirk documented in
+        # `_resolve_node_entrypoint`.
+        if extra_prompt:
+            prompt = f"{prompt}\n\n{extra_prompt}"
         node_pair = self._resolve_node_entrypoint(cursor_bin)
         if node_pair is not None:
             node_exe, index_js = node_pair
@@ -923,6 +967,35 @@ def _fr_status_on_branch(fr_id: str, branch: str) -> str | None:
     return str(meta.get("status", "")) or None
 
 
+def _fr_spec_committed_on_branch(fr_id: str, branch: str) -> bool:
+    """True iff this FR's spec file is committed on `branch`.
+
+    A role worktree is a clean checkout of `branch` (see
+    `ensure_role_worktree`). If the spec was authored but never committed —
+    e.g. the Architect handoff skipped the commit step — the worktree won't
+    contain it and the agent fails with "FR not found". The dispatcher uses
+    this to refuse the spawn with an actionable error rather than launching a
+    blind agent against an invisible spec.
+
+    Mirrors the `git ls-tree` lookup in `_fr_status_on_branch`. A `git`
+    failure (e.g. the branch doesn't exist yet) is treated as "not committed"
+    so the guard fails safe.
+    """
+    ls = subprocess.run(
+        ["git", "-C", str(REPO_ROOT), "ls-tree", "-r", "--name-only", branch, "specs/"],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    if ls.returncode != 0:
+        return False
+    prefix = f"specs/{fr_id}-"
+    return any(
+        line.startswith(prefix) and line.endswith(".md")
+        for line in ls.stdout.splitlines()
+    )
+
+
 def runnable_review_frs(frs: list[dict]) -> list[dict]:
     """FRs whose Developer wave has produced a branch and is no longer
     actively working — i.e. eligible for a Reviewer pass.
@@ -953,6 +1026,105 @@ def runnable_review_frs(frs: list[dict]) -> list[dict]:
             continue
         out.append(fr)
     return out
+
+
+_FR_ID_RE = re.compile(r"^FR-\d{4}$")
+
+_LOCK_BLOCKED_STATES = {
+    "held": "{role} lock held (pid={pid}, since {since})",
+    "stale": "stale {role} lock (pid={pid}, started {since}); not auto-clearing",
+    "dead": "orphaned {role} lock (pid={pid} no longer alive); run `dispatch.py prune`",
+    "corrupt": "corrupt {role} lockfile; remove it or run `dispatch.py prune`",
+}
+
+
+def parse_fr_selector(values: list[str] | None) -> list[str] | None:
+    """Normalise `--fr` into a de-duplicated, order-preserving list of FR ids.
+
+    Accepts a repeated flag, a comma-separated list, or both. Returns None
+    when the flag was not supplied, which means "no filter" and preserves the
+    whole-runnable-set behaviour exactly.
+    """
+    if not values:
+        return None
+    out: list[str] = []
+    for raw in values:
+        for part in str(raw).replace(",", " ").split():
+            fr_id = part.strip().upper()
+            if fr_id and fr_id not in out:
+                out.append(fr_id)
+    return out or None
+
+
+def explain_not_runnable(fr_id: str, frs: list[dict], role: str) -> str | None:
+    """Why `--fr <fr_id>` cannot run for `role`, or None if it can.
+
+    Ordered most-specific-first so the message names the actual blocker rather
+    than a downstream symptom. `--fr` must never silently no-op or fall back
+    to the full runnable set, so every branch here returns a reason a human
+    can act on.
+    """
+    if not _FR_ID_RE.match(fr_id):
+        return "not a valid FR id (expected FR-XXXX)"
+    by_id = {fr["id"]: fr for fr in frs}
+    fr = by_id.get(fr_id)
+    if fr is None:
+        return f"unknown FR id (no specs/{fr_id}-*.md with readable frontmatter)"
+    state, lock = lock_state(fr_id, role)
+    if state in _LOCK_BLOCKED_STATES:
+        return _LOCK_BLOCKED_STATES[state].format(
+            role=role,
+            pid=(lock or {}).get("pid", "?"),
+            since=(lock or {}).get("started_at_iso", "?"),
+        )
+    if role == "rev":
+        dev_branch = f"claude/dev-{fr_id}"
+        if not _git_branch_exists(dev_branch):
+            return f"no {dev_branch} branch locally — nothing for a Reviewer to review"
+        effective = _fr_status_on_branch(fr_id, dev_branch) or fr["status"]
+        if effective not in REVIEWABLE_STATUSES:
+            return (
+                f"status is {effective!r} on {dev_branch}; rev tick requires one of "
+                f"{sorted(REVIEWABLE_STATUSES)}"
+            )
+        dev_state, dev_lock = lock_state(fr_id, "dev")
+        if dev_state == "held":
+            return (
+                "Developer still running (dev lock held, "
+                f"pid={(dev_lock or {}).get('pid', '?')})"
+            )
+        return None
+    if fr["status"] != "ready":
+        return f"status is {fr['status']!r}; {role} tick requires status='ready'"
+    blocking = [
+        f"{dep} (status={by_id.get(dep, {}).get('status') or 'missing'})"
+        for dep in fr["depends_on"]
+        if by_id.get(dep, {}).get("status") not in TERMINAL_STATUSES
+    ]
+    if blocking:
+        return "unmet depends_on: " + ", ".join(blocking)
+    return None
+
+
+def filter_frs_by_selector(
+    frs: list[dict], selection: list[str], role: str
+) -> tuple[list[dict], list[str]]:
+    """Resolve a `--fr` selection to FR records, plus per-FR blocking reasons.
+
+    Reports every non-runnable FR in one pass: a partially-executed targeted
+    wave is harder to reason about than a clean failure, so callers abort on
+    any problem rather than proceeding with the runnable subset.
+    """
+    by_id = {fr["id"]: fr for fr in frs}
+    chosen: list[dict] = []
+    problems: list[str] = []
+    for fr_id in selection:
+        reason = explain_not_runnable(fr_id, frs, role)
+        if reason is not None:
+            problems.append(f"{fr_id}: {reason}")
+        else:
+            chosen.append(by_id[fr_id])
+    return chosen, problems
 
 
 def lock_path(fr_id: str, role: str) -> Path:
@@ -1063,13 +1235,6 @@ def _find_uv() -> str | None:
     return None
 
 
-# Worktree venv configuration. Override via environment variables or edit
-# these defaults to match your project's dependency footprint.
-VENV_DIRNAME = os.environ.get("DISPATCH_VENV_DIRNAME", ".venv-dispatch")
-VENV_PACKAGES = (os.environ.get("DISPATCH_VENV_PACKAGES") or "pyyaml,ruff,pytest").split(",")
-VENV_PYTHON_VERSION = os.environ.get("DISPATCH_VENV_PYTHON", "3.11")
-
-
 def ensure_dev_venv(wt_path: Path) -> tuple[bool, str]:
     """Pre-provision the dispatch venv in the worktree with the deps the
     agent needs. Returns (ok, message). Idempotent: skips if venv already present.
@@ -1145,6 +1310,17 @@ def ensure_role_worktree(
     wt_path = wt_root / f"{role}-{fr_id}"
     branch = f"claude/{role}-{fr_id}"
     base_branch = _base_branch_for_role(fr_id, role)
+    # Guard: a worktree is a clean checkout of `base_branch`. If the FR's spec
+    # was authored but never committed onto that branch, the worktree can't see
+    # it and the agent fails with "FR not found" (the FR-0014 failure mode).
+    # Refuse the spawn with an actionable error instead of launching blind.
+    if not _fr_spec_committed_on_branch(fr_id, base_branch):
+        return (
+            None,
+            f"error:{fr_id} spec is untracked on '{base_branch}' — commit it "
+            f"before dispatch (git add specs/{fr_id}-*.md specs/INDEX.md "
+            f"CODEOWNERS && git commit)",
+        )
     wt_status: str
     if wt_path.exists():
         wt_status = "reused"
@@ -1199,7 +1375,11 @@ ensure_dev_worktree = ensure_role_worktree
 
 
 def spawn_role(
-    fr_id: str, role: str, apply: bool, adapter: HarnessAdapter
+    fr_id: str,
+    role: str,
+    apply: bool,
+    adapter: HarnessAdapter,
+    extra_prompt: str | None = None,
 ) -> tuple[str, int | None, Path | None]:
     if not apply:
         return ("dry-run", None, None)
@@ -1208,7 +1388,13 @@ def spawn_role(
         return (wt_status, None, None)
     log_path = DISPATCH_DIR / f"{fr_id}.{role}.log"
     DISPATCH_DIR.mkdir(parents=True, exist_ok=True)
-    result, pid = adapter.spawn(fr_id, role, wt_path, log_path)
+    # Only forward `extra_prompt` when set: adapter doubles that predate the
+    # parameter (test fakes, older harnesses) keep working for the common
+    # non-rework path, which passes nothing.
+    if extra_prompt is None:
+        result, pid = adapter.spawn(fr_id, role, wt_path, log_path)
+    else:
+        result, pid = adapter.spawn(fr_id, role, wt_path, log_path, extra_prompt=extra_prompt)
     if result != "spawned":
         return (result, None, wt_path)
     write_lock(
@@ -1249,6 +1435,30 @@ def spawn_role(
 
 _FR_BRANCH_RE = re.compile(r"^claude/(dev|rev|bkf)-(FR-\d{4})$")
 
+# Conventional-commit header: `type(scope): subject`. The project convention is
+# that scope is the FR id(s) a PR touches, so the scope is a second, independent
+# way to identify the FR behind a merged PR.
+_CC_SCOPE_BODY_RE = re.compile(r"^[a-z]+\(([^)]*)\)!?:", re.IGNORECASE)
+
+
+def fr_ids_from_pr_title(title: str) -> list[str]:
+    """Distinct FR ids in a PR title's conventional-commit scope.
+
+    Only the scope is consulted, never the subject: a subject mentioning a
+    neighbouring FR ("feat(FR-0041): unblock FR-0009") must not be read as
+    touching it. Returns [] when the title is not a conventional-commit header
+    or its scope names no FR, which callers treat as "cannot attribute".
+    """
+    m = _CC_SCOPE_BODY_RE.match(title.strip())
+    if m is None:
+        return []
+    out: list[str] = []
+    for fr_id in re.findall(r"FR-\d{4}", m.group(1), flags=re.IGNORECASE):
+        upper = fr_id.upper()
+        if upper not in out:
+            out.append(upper)
+    return out
+
 
 @dataclasses.dataclass
 class ReconcileSummary:
@@ -1256,6 +1466,105 @@ class ReconcileSummary:
     cleaned: list[str]
     skipped: list[tuple[str, str]]
     gh_unavailable: bool = False
+
+
+def _git_fetch_origin_main(timeout_s: int = 15) -> tuple[bool, str]:
+    """Fetch origin/main. Failure is non-fatal."""
+    proc = subprocess.run(
+        ["git", "-C", str(REPO_ROOT), "fetch", "origin", "main"],
+        capture_output=True,
+        text=True,
+        timeout=timeout_s,
+    )
+    if proc.returncode != 0:
+        err = (proc.stderr or proc.stdout or "git fetch failed").strip()
+        return (False, err)
+    return (True, "ok")
+
+
+def _commits_behind_origin_main() -> int:
+    """Return commit count of main..origin/main."""
+    proc = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(REPO_ROOT),
+            "rev-list",
+            "--count",
+            "main..origin/main",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    if proc.returncode != 0:
+        return 0
+    try:
+        return int((proc.stdout or "0").strip() or "0")
+    except ValueError:
+        return 0
+
+
+def _run_deploy_gate(stage: str) -> tuple[bool, str]:
+    """Run deploy-gate.py; return (ok, combined output)."""
+    gate = REPO_ROOT / "scripts" / "deploy-gate.py"
+    proc = subprocess.run(
+        [sys.executable, str(gate), "--stage", stage],
+        cwd=str(REPO_ROOT),
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+    out = "\n".join(
+        x for x in [(proc.stdout or "").strip(), (proc.stderr or "").strip()] if x
+    )
+    return proc.returncode == 0, out
+
+
+def _prepend_forced_gate_banner(path: Path, operator_note: str) -> None:
+    banner = f"> ⚠️ Forced past red gate by {operator_note}\n\n"
+    if path.exists():
+        text = path.read_text(encoding="utf-8")
+        if banner.strip() not in text:
+            path.write_text(banner + text, encoding="utf-8")
+
+
+def _finalize_gate_preflight(
+    *,
+    fr_id: str,
+    role: str,
+    stage: str,
+    draft: bool,
+    force: bool,
+    pr_body_path: Path | None = None,
+) -> tuple[bool, str | None]:
+    """Refuse finalize when the deploy gate is red (draft PRs exempt)."""
+    if force:
+        note = os.environ.get("USER") or os.environ.get("USERNAME") or "operator"
+        print(
+            f"  {fr_id}.{role}  WARN — --force bypasses deploy gate ({stage})",
+            file=sys.stderr,
+        )
+        if pr_body_path is not None:
+            _prepend_forced_gate_banner(
+                pr_body_path, f"{note} via dispatch finalize --force"
+            )
+        return (True, "forced")
+    ok, output = _run_deploy_gate(stage)
+    if ok:
+        return (True, None)
+    print(output)
+    if draft and role in ("dev", "bkf"):
+        print(
+            f"  {fr_id}.{role}  WARN — deploy gate failed but proceeding "
+            f"(draft PR exempt)"
+        )
+        record = _load_pr_record(fr_id, role) or {}
+        record["gate_warning_at_finalize"] = output[-2000:]
+        _save_pr_record(fr_id, role, record)
+        return (True, "draft-exempt")
+    print(f"  {fr_id}.{role}  ERROR — deploy gate ({stage}) failed; refusing finalize")
+    return (False, "gate-failed")
 
 
 def _gh_merged_prs(limit: int = 100) -> list[dict] | None:
@@ -1822,6 +2131,98 @@ def _branch_head_sha(branch: str) -> str | None:
     if proc.returncode != 0:
         return None
     return proc.stdout.strip() or None
+
+
+def _role_worktree_path(fr_id: str, role: str) -> Path:
+    """Where `ensure_role_worktree` put this role's checkout for this FR."""
+    return REPO_ROOT / ".claude" / "worktrees" / f"{role}-{fr_id}"
+
+
+def _git_capture(args: list[str], cwd: Path) -> tuple[bool, str]:
+    """Run git in `cwd`; return (ok, trimmed stdout) or (False, stderr)."""
+    proc = subprocess.run(
+        ["git", "-C", str(cwd), *args],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    if proc.returncode != 0:
+        return (False, (proc.stderr or proc.stdout or "").strip())
+    return (True, (proc.stdout or "").strip())
+
+
+def _path_lines(out: str) -> list[str]:
+    return [ln.strip() for ln in out.splitlines() if ln.strip()]
+
+
+def _finalize_commit_subject(fr_id: str, role: str) -> str:
+    """Conventional-Commits subject for an agent's `finalize` commit."""
+    if role == "rev":
+        return f"test({fr_id}): AC coverage"
+    if role == "bkf":
+        return f"test({fr_id}): backfill AC coverage"
+    return f"feat({fr_id}): {_fr_title(fr_id) or fr_id}"
+
+
+def _staged_paths(wt_path: Path) -> list[str]:
+    """Paths in the role worktree's index. Empty when the worktree is gone."""
+    if not wt_path.exists():
+        return []
+    ok, out = _git_capture(["diff", "--cached", "--name-only"], wt_path)
+    return _path_lines(out) if ok else []
+
+
+def _unstaged_paths(wt_path: Path) -> list[str]:
+    """Tracked files modified in the worktree but not staged."""
+    if not wt_path.exists():
+        return []
+    ok, out = _git_capture(["diff", "--name-only"], wt_path)
+    return _path_lines(out) if ok else []
+
+
+def _commits_ahead(branch: str, base: str) -> int | None:
+    """Commits on `branch` that `base` lacks. None when git cannot tell."""
+    ok, out = _git_capture(["rev-list", "--count", f"{base}..{branch}"], REPO_ROOT)
+    if not ok:
+        return None
+    try:
+        return int(out.split()[0])
+    except (IndexError, ValueError):
+        return None
+
+
+def _commit_staged_work(fr_id: str, role: str, branch: str) -> tuple[str, list[str]]:
+    """Commit whatever the agent staged in its worktree, before pushing.
+
+    Dispatched agents cannot commit — the harness refuses `git commit` in every
+    form — so the normal outcome of a *successful* run is a worktree of staged,
+    gate-passing work on a branch with no commits, which is indistinguishable
+    from a failed run once `finalize` pushes it. Staging is the agent's signal
+    of intent, so the index is committed verbatim: plain `git commit` (no `-a`)
+    cannot pick up unstaged modifications.
+
+    Returns (outcome, staged_paths); outcome is "committed", "nothing-staged",
+    or "error:<msg>".
+    """
+    wt_path = _role_worktree_path(fr_id, role)
+    staged = _staged_paths(wt_path)
+    if not staged:
+        return ("nothing-staged", [])
+    # Never commit onto a branch other than the one being finalized: a
+    # worktree left on a detached HEAD or a stale branch would otherwise
+    # silently land the agent's work somewhere nobody looks.
+    ok, head = _git_capture(["rev-parse", "--abbrev-ref", "HEAD"], wt_path)
+    if not ok:
+        return (f"error:cannot read HEAD in {wt_path}", staged)
+    if head != branch:
+        return (f"error:worktree {wt_path} is on {head}, not {branch}", staged)
+    ok, err = _git_capture(
+        ["commit", "-m", _finalize_commit_subject(fr_id, role)], wt_path
+    )
+    if not ok:
+        lines = _path_lines(err)
+        return (f"error:{lines[-1] if lines else 'git commit failed'}", staged)
+    return ("committed", staged)
 
 
 def _pr_record_path(fr_id: str, role: str) -> Path:
@@ -2471,7 +2872,16 @@ def cmd_backfill(fr_id: str, apply: bool, adapter: HarnessAdapter) -> int:
     return 1
 
 
-def cmd_tick(apply: bool, adapter: HarnessAdapter, role: str = "dev") -> int:
+def cmd_tick(
+    apply: bool,
+    adapter: HarnessAdapter,
+    role: str = "dev",
+    fr_filter: list[str] | None = None,
+) -> int:
+    """`fr_filter` is None when `--fr` was not supplied, which dispatches the
+    whole runnable set exactly as before. When supplied, every named FR must be
+    runnable for this role or the tick aborts non-zero without spawning.
+    """
     role_label = ROLE_LABELS.get(role, role)
     frs = load_frs()
     if not frs:
@@ -2525,6 +2935,16 @@ def cmd_tick(apply: bool, adapter: HarnessAdapter, role: str = "dev") -> int:
         runnable = runnable_frs(frs)
         empty_msg = "No runnable FRs (none with status=ready and deps fully merged)."
 
+    if fr_filter is not None:
+        runnable, problems = filter_frs_by_selector(frs, fr_filter, role)
+        if problems:
+            print(f"--fr selection cannot run for {role_label}:")
+            for problem in problems:
+                print(f"  {problem}")
+            return 1
+        empty_msg = f"--fr selection is empty for {role_label}."
+        print(f"--fr filter active: {[fr['id'] for fr in runnable]}")
+
     if not runnable:
         print(empty_msg)
     else:
@@ -2563,8 +2983,9 @@ def cmd_tick(apply: bool, adapter: HarnessAdapter, role: str = "dev") -> int:
             base = _base_branch_for_role(fr["id"], role)
             print(f"  {fr['id']}  WOULD-SPAWN  {preview}  (base={base})")
         elif result == "spawned":
+            log_file = DISPATCH_DIR / "{}.{}.log".format(fr["id"], role)
             print(
-                f"  {fr['id']}  SPAWNED      pid={pid}, worktree={wt_path}, log={DISPATCH_DIR / f'{fr['id']}.{role}.log'}"
+                f"  {fr['id']}  SPAWNED      pid={pid}, worktree={wt_path}, log={log_file}"
             )
         elif result == "binary-not-found":
             hint = (
@@ -2576,8 +2997,9 @@ def cmd_tick(apply: bool, adapter: HarnessAdapter, role: str = "dev") -> int:
                 f"  {fr['id']}  ERROR        `{adapter.binary_name}` CLI not on PATH; {hint}"
             )
         elif result == "spawn-failed":
+            log_file = DISPATCH_DIR / "{}.{}.log".format(fr["id"], role)
             print(
-                f"  {fr['id']}  ERROR        spawn failed (OSError); see {DISPATCH_DIR / f'{fr['id']}.{role}.log'}"
+                f"  {fr['id']}  ERROR        spawn failed (OSError); see {log_file}"
             )
         elif result.startswith("error:"):
             print(f"  {fr['id']}  ERROR        worktree setup failed: {result[6:]}")
@@ -2806,6 +3228,18 @@ def main() -> int:
             help=f"agent harness to use (default: {DEFAULT_HARNESS}; env: DISPATCH_HARNESS)",
         )
 
+    def add_fr_selector(p: argparse.ArgumentParser) -> None:
+        p.add_argument(
+            "--fr",
+            action="append",
+            metavar="FR-XXXX[,FR-YYYY]",
+            help=(
+                "Restrict dispatch to these FR ids. Repeatable and/or "
+                "comma-separated. Omit for every runnable FR. A named FR that "
+                "cannot run is an error, never a silent skip."
+            ),
+        )
+
     p_tick = sub.add_parser(
         "tick", help="Fire next Developer or Reviewer wave (dry-run unless --apply)"
     )
@@ -2818,6 +3252,7 @@ def main() -> int:
         default="dev",
         help="dev: spawn Developers for ready FRs (default). rev: spawn Reviewers for FRs whose dev branch exists and dev is finished.",
     )
+    add_fr_selector(p_tick)
     add_harness(p_tick)
 
     sub.add_parser("status", help="Show liveness/idle/dead per lock")
@@ -2931,7 +3366,12 @@ def main() -> int:
     args = parser.parse_args()
     if args.cmd == "tick":
         adapter = get_adapter(args.harness)
-        return cmd_tick(apply=args.apply, adapter=adapter, role=args.role)
+        return cmd_tick(
+            apply=args.apply,
+            adapter=adapter,
+            role=args.role,
+            fr_filter=parse_fr_selector(args.fr),
+        )
     if args.cmd == "status":
         return cmd_status()
     if args.cmd == "prune":
