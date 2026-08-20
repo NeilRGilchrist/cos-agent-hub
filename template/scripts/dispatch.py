@@ -54,6 +54,9 @@ Usage:
   python scripts/dispatch.py backfill FR-XXXX                # show one-shot Reviewer-backfill plan (dry-run)
   python scripts/dispatch.py backfill FR-XXXX --apply        # spawn Reviewer to write missing AC tests for an already-merged FR
   python scripts/dispatch.py finalize FR-XXXX --role bkf --apply  # push + open `test(FR-XXXX): backfill AC coverage` PR
+  python scripts/dispatch.py maintain FR-XXXX                # show one-shot maintainer plan (dry-run)
+  python scripts/dispatch.py maintain FR-XXXX --apply        # spawn Developer-in-maintainer-mode for a control-plane FR (footprint from `owns:`)
+  python scripts/dispatch.py finalize FR-XXXX --role mnt --apply  # push + open `chore(FR-XXXX): <title>` PR
 
 GitHub PR integration (finalize):
   Agents do NOT touch GitHub directly. The dispatcher owns:
@@ -73,6 +76,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import datetime as dt
+import fnmatch
 import json
 import os
 import re
@@ -124,6 +128,13 @@ SLASH_COMMAND_NAMES = {
     # off `main` (the dev work is already there); opens a small follow-up
     # PR titled `test(FR-XXXX): backfill AC coverage`.
     "bkf": "reviewer-backfill",
+    # `mnt` is a one-shot Developer-in-maintainer-mode used for FRs whose
+    # declared `owns:` footprint intersects the control-plane paths every
+    # other role denies (`.agent-team/**`, the gate/indexer/dispatcher
+    # scripts). Its writable footprint is derived from that FR's `owns:` —
+    # see MNT_PROTECTED_GLOBS and mnt_permission_rules. Dev-shaped:
+    # branches off `main`, authors PR_BODY.md, opens its own PR.
+    "mnt": "maintainer",
 }
 
 DEFAULT_HARNESS = os.environ.get("DISPATCH_HARNESS", "claude-code")
@@ -135,6 +146,105 @@ DEFAULT_HARNESS = os.environ.get("DISPATCH_HARNESS", "claude-code")
 VENV_DIRNAME = os.environ.get("DISPATCH_VENV_DIRNAME", ".venv-dispatch")
 VENV_PACKAGES = (os.environ.get("DISPATCH_VENV_PACKAGES") or "pyyaml,ruff,pytest").split(",")
 VENV_PYTHON_VERSION = os.environ.get("DISPATCH_VENV_PYTHON", "3.11")
+
+# Paths every role's harness permissions deny. `mnt` un-denies exactly the
+# subset the target FR declares in `owns:` — never more, and never CLAUDE.md.
+MNT_PROTECTED_GLOBS = (
+    ".agent-team/**",
+    "scripts/deploy-gate.py",
+    "scripts/index-specs.py",
+    "scripts/dispatch.py",
+    "scripts/agent-status.py",
+    "CLAUDE.md",
+)
+
+# An agent that can rewrite the working agreement can rewrite its own
+# constraints, so this is denied to `mnt` whatever an FR claims to own.
+MNT_NEVER_WRITABLE = ("CLAUDE.md",)
+
+# Paths the harness write-guards on its own, independently of any settings
+# file. Granting one reads as permission the agent does not actually have,
+# which pushes it toward writing the file from an interpreter instead. A
+# `mnt` spawn whose `owns:` intersects these is warned about by name, and
+# the canonical source is named in the warning.
+HARNESS_GUARDED_GLOBS = (".claude/**",)
+
+# `.claude/commands/<x>.md` is generated from `.agent-team/commands/<x>.md`
+# by the hub bootstrapper, which is the sanctioned way to change it.
+HARNESS_GUARDED_SOURCE_HINT = {
+    ".claude/commands/": (
+        "edit `.agent-team/commands/<name>.md` (the canonical source) and "
+        "regenerate with `python <hub>/scripts/bootstrap.py --upgrade <project>`"
+    ),
+}
+
+# Interpreters and entrypoints `mnt` may invoke. `dev` holds a blanket
+# `Bash(python *)`, which makes every Edit/Write deny bypassable by writing
+# the file from an interpreter — decorative denials in a role whose deny list
+# guards the control plane. `mnt` therefore inherits `dev`'s Bash surface
+# minus anything that executes arbitrary code or redirects output, plus these
+# sanctioned entrypoints.
+MNT_INTERPRETERS = (
+    "python",
+    "python3",
+    "py",
+    f"{VENV_DIRNAME}/Scripts/python.exe",
+    f"{VENV_DIRNAME}/Scripts/python",
+    f"{VENV_DIRNAME}/bin/python",
+)
+MNT_SANCTIONED_ENTRYPOINTS = (
+    "scripts/deploy-gate.py",
+    "scripts/index-specs.py",
+    "scripts/dispatch.py",
+    "scripts/agent-status.py",
+    "-m pytest",
+    "-m ruff",
+)
+
+# `dev` Bash grants `mnt` does not inherit. Interpreters and package
+# installers execute arbitrary code; `echo` and the compound-shell wildcards
+# reach denied paths through redirection.
+MNT_BASH_NOT_INHERITED = (
+    "Bash(python *)",
+    "Bash(python3 *)",
+    "Bash(py *)",
+    "Bash(pip *)",
+    f"Bash({VENV_DIRNAME}/Scripts/python.exe *)",
+    f"Bash({VENV_DIRNAME}/Scripts/python *)",
+    f"Bash({VENV_DIRNAME}/Scripts/pip *)",
+    f"Bash({VENV_DIRNAME}/bin/python *)",
+    f"Bash({VENV_DIRNAME}/bin/pip *)",
+    "Bash(echo *)",
+    "Bash(* && *)",
+    "Bash(* || *)",
+    "Bash(* | *)",
+    "Bash(* ; *)",
+)
+
+# Deny beats allow, so these are belt-and-braces over the narrowed allow
+# list: they state the intent explicitly rather than relying on absence.
+MNT_BASH_DENIES = (
+    "Bash(python -c*)",
+    "Bash(python3 -c*)",
+    "Bash(py -c*)",
+    "Bash(python)",
+    "Bash(python3)",
+    "Bash(pip *)",
+    "Bash(uv *)",
+    "Bash(node *)",
+    "Bash(npx *)",
+    "Bash(bash *)",
+    "Bash(sh *)",
+    "Bash(powershell *)",
+    "Bash(pwsh *)",
+    "Bash(cmd *)",
+    "Bash(perl *)",
+    "Bash(ruby *)",
+    "Bash(tee *)",
+    "Bash(sed -i*)",
+    "Bash(cp *)",
+    "Bash(mv *)",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -157,7 +267,7 @@ class HarnessAdapter(Protocol):
     name: str
     binary_name: str
 
-    def write_worktree_settings(self, wt_path: Path, role: str) -> None: ...
+    def write_worktree_settings(self, wt_path: Path, role: str, fr_id: str) -> None: ...
     def spawn(
         self,
         fr_id: str,
@@ -451,8 +561,51 @@ class ClaudeCodeAdapter:
         + ["Edit(specs/**)", "Write(specs/**)"],
     }
 
-    def write_worktree_settings(self, wt_path: Path, role: str) -> None:
-        perms = self.ROLE_PERMISSIONS.get(role)
+    def mnt_permissions(self, fr_id: str) -> dict[str, list[str]] | None:
+        """`dev`'s surface, re-scoped to the target FR's `owns:` footprint.
+
+        Returns None when the FR declares no `owns:` — `mnt` has nothing to
+        derive a footprint from and must not run.
+
+        Two ways this is *narrower* than `dev`, both required to make the
+        derived footprint enforced rather than advisory: arbitrary interpreter
+        invocation is replaced by a sanctioned entrypoint list, and `specs/**`
+        is denied outright — an FR body is the Architect's, and
+        `reconcile-merged` owns the status flip, so a `mnt` run has no reason
+        to touch one. That also keeps every path a `mnt` branch touches inside
+        `owns:`.
+        """
+        owns = fr_owns_globs(fr_id)
+        if not owns:
+            return None
+        granted, protected_denies = mnt_permission_rules(owns)
+        base = self.ROLE_PERMISSIONS["dev"]
+        keep = [d for d in base["deny"] if not d.startswith(("Edit(", "Write("))]
+        inherited = [
+            a
+            for a in base["allow"]
+            if a not in MNT_BASH_NOT_INHERITED and a != "Edit(specs/FR-*.md)"
+        ]
+        return {
+            "allow": inherited
+            + _mnt_bash_allow()
+            + [f"Edit({g})" for g in granted]
+            + [f"Write({g})" for g in granted],
+            # Rebuild the write denials from the derived protected set; keep
+            # the non-path denials (destructive git) exactly as `dev` has them.
+            "deny": [f"Edit({d})" for d in protected_denies]
+            + [f"Write({d})" for d in protected_denies]
+            + ["Edit(tests/test_*.py)", "Write(tests/test_*.py)"]
+            + ["Edit(specs/**)", "Write(specs/**)"]
+            + list(MNT_BASH_DENIES)
+            + keep,
+        }
+
+    def write_worktree_settings(self, wt_path: Path, role: str, fr_id: str) -> None:
+        if role == "mnt":
+            perms = self.mnt_permissions(fr_id)
+        else:
+            perms = self.ROLE_PERMISSIONS.get(role)
         if perms is None:
             return
         settings_dir = wt_path / ".claude"
@@ -678,8 +831,72 @@ class CursorAdapter:
         + ["Write(specs/**)"],
     }
 
-    def write_worktree_settings(self, wt_path: Path, role: str) -> None:
-        perms = self.ROLE_PERMISSIONS.get(role)
+    # Cursor's Shell token is per-command, so the interpreter narrowing is the
+    # same idea in a different syntax: drop the bare interpreter grants and
+    # re-add them bound to a sanctioned entrypoint via `Shell(cmd:args*)`.
+    MNT_SHELL_NOT_INHERITED = (
+        "Shell(python)",
+        "Shell(python3)",
+        "Shell(py)",
+        "Shell(pip)",
+        "Shell(uv)",
+        "Shell(echo)",
+    )
+    MNT_SHELL_DENIES = (
+        "Shell(python:-c*)",
+        "Shell(python3:-c*)",
+        "Shell(py:-c*)",
+        "Shell(pip)",
+        "Shell(uv)",
+        "Shell(node)",
+        "Shell(npx)",
+        "Shell(bash)",
+        "Shell(sh)",
+        "Shell(powershell)",
+        "Shell(pwsh)",
+        "Shell(cmd)",
+        "Shell(perl)",
+        "Shell(ruby)",
+        "Shell(tee)",
+        "Shell(sed)",
+        "Shell(cp)",
+        "Shell(mv)",
+    )
+
+    def mnt_permissions(self, fr_id: str) -> dict[str, list[str]] | None:
+        """Cursor equivalent of ClaudeCodeAdapter.mnt_permissions.
+
+        Cursor has no separate edit token, so only `Write(...)` is emitted.
+        """
+        owns = fr_owns_globs(fr_id)
+        if not owns:
+            return None
+        granted, protected_denies = mnt_permission_rules(owns)
+        base = self.ROLE_PERMISSIONS["dev"]
+        keep = [d for d in base["deny"] if not d.startswith("Write(")]
+        inherited = [
+            a
+            for a in base["allow"]
+            if a not in self.MNT_SHELL_NOT_INHERITED and a != "Write(specs/FR-*.md)"
+        ]
+        sanctioned = [
+            f"Shell({interp}:{entry}*)"
+            for interp in ("python", "python3", "py")
+            for entry in MNT_SANCTIONED_ENTRYPOINTS
+        ]
+        return {
+            "allow": inherited + sanctioned + [f"Write({g})" for g in granted],
+            "deny": [f"Write({d})" for d in protected_denies]
+            + ["Write(tests/test_*.py)", "Write(specs/**)"]
+            + list(self.MNT_SHELL_DENIES)
+            + keep,
+        }
+
+    def write_worktree_settings(self, wt_path: Path, role: str, fr_id: str) -> None:
+        if role == "mnt":
+            perms = self.mnt_permissions(fr_id)
+        else:
+            perms = self.ROLE_PERMISSIONS.get(role)
         if perms is None:
             return
         settings_dir = wt_path / ".cursor"
@@ -1280,6 +1497,8 @@ def _base_branch_for_role(fr_id: str, role: str) -> str:
       * bkf — always `main`. Backfill mode runs against an already-merged
         FR; the implementation is on `main`, the dev branch may already
         have been deleted by `reconcile-merged`.
+      * mnt — always `main`. Maintainer mode is dev-shaped: it implements a
+        control-plane FR from scratch, so it starts from latest merged work.
 
     For roles we don't recognise, default to `main`.
     """
@@ -1322,6 +1541,15 @@ def ensure_role_worktree(
             f"before dispatch (git add specs/{fr_id}-*.md specs/INDEX.md "
             f"CODEOWNERS && git commit)",
         )
+    # `mnt` has no static footprint — it is granted exactly what the target FR
+    # declares in `owns:`. With nothing declared there is no footprint to
+    # derive, so refuse rather than run unscoped.
+    if role == "mnt" and not fr_owns_globs(fr_id):
+        return (
+            None,
+            f"error:{fr_id} declares no `owns:` frontmatter — `mnt` derives its "
+            f"writable footprint from it and will not run unscoped",
+        )
     wt_status: str
     if wt_path.exists():
         wt_status = "reused"
@@ -1360,7 +1588,7 @@ def ensure_role_worktree(
                     or add_existing_branch.stderr.strip()
                 )
                 return (None, f"error:{err}")
-    adapter.write_worktree_settings(wt_path, role)
+    adapter.write_worktree_settings(wt_path, role, fr_id)
     venv_ok, venv_msg = ensure_dev_venv(wt_path)
     if not venv_ok:
         # Soft-fail: the agent can still run against system python; surface
@@ -1434,7 +1662,7 @@ def spawn_role(
 # removes the worktrees/branches/locks. Idempotent: re-runs against
 # already-merged-and-cleaned FRs are no-ops.
 
-_FR_BRANCH_RE = re.compile(r"^claude/(dev|rev|bkf)-(FR-\d{4})$")
+_FR_BRANCH_RE = re.compile(r"^claude/(dev|rev|bkf|mnt)-(FR-\d{4})$")
 
 # Conventional-commit header: `type(scope): subject`. The project convention is
 # that scope is the FR id(s) a PR touches, so the scope is a second, independent
@@ -1790,7 +2018,9 @@ def reconcile_merged_prs(
         if not m:
             continue
         role, fr_id = m.group(1), m.group(2)
-        slot = by_fr.setdefault(fr_id, {"dev": None, "rev": None, "bkf": None})
+        slot = by_fr.setdefault(
+            fr_id, {"dev": None, "rev": None, "bkf": None, "mnt": None}
+        )
         prev = slot[role]
         if prev is None or str(row.get("mergedAt", "")) > str(
             prev.get("mergedAt", "")
@@ -1808,7 +2038,9 @@ def reconcile_merged_prs(
 
     for fr_id in sorted(by_fr):
         slot = by_fr[fr_id]
-        pr_for_flip = slot["dev"] or slot["rev"]
+        # `mnt` PRs carry the FR's implementation the same way `dev` PRs do,
+        # so a merged mnt PR is a valid trigger for the status flip.
+        pr_for_flip = slot["dev"] or slot["mnt"] or slot["rev"]
         spec_paths = list(SPECS_DIR.glob(f"{fr_id}-*.md"))
         if not spec_paths:
             summary.skipped.append((fr_id, "no spec file under specs/"))
@@ -1873,15 +2105,20 @@ def reconcile_merged_prs(
         # verdict is posted as `gh pr review` against the parent dev PR), so
         # `slot["rev"]` is almost always None even when a `rev-FR-XXXX`
         # worktree exists locally. Trigger rev cleanup off the dev merge.
-        # Backfill (`bkf`) PRs DO open their own PRs, so they're handled
-        # independently when their own merge appears.
+        # Backfill (`bkf`) and maintainer (`mnt`) PRs DO open their own PRs,
+        # so they're handled independently when their own merge appears. `mnt`
+        # is dev-shaped, so a merged mnt PR also retires any rev artefacts.
         roles_to_clean: list[str] = []
         if slot["dev"] is not None:
             roles_to_clean.extend(["dev", "rev"])
+        elif slot["mnt"] is not None:
+            roles_to_clean.extend(["mnt", "rev"])
         elif slot["rev"] is not None:
             roles_to_clean.append("rev")
         if slot["bkf"] is not None:
             roles_to_clean.append("bkf")
+        if slot["mnt"] is not None and "mnt" not in roles_to_clean:
+            roles_to_clean.append("mnt")
 
         cleanup_msgs: list[str] = []
         any_cleaned = False
@@ -2003,7 +2240,12 @@ def new_escalations(since: dt.datetime | None) -> list[Path]:
     return out
 
 
-ROLE_LABELS = {"dev": "Developer", "rev": "Reviewer"}
+ROLE_LABELS = {
+    "dev": "Developer",
+    "rev": "Reviewer",
+    "bkf": "Reviewer (backfill)",
+    "mnt": "Maintainer",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -2100,6 +2342,48 @@ def _branch_for(fr_id: str, role: str) -> str:
     return f"claude/{role}-{fr_id}"
 
 
+def _oneshot_pr_title(fr_id: str, role: str) -> str:
+    """Conventional-Commits PR title for a one-shot role's own PR.
+
+    `mnt` uses the `chore` type because maintainer runs target the control
+    plane (role definitions, dispatcher, gate) rather than product behaviour;
+    what matters for reviewability is that the `(FR-XXXX)` scope is present so
+    a normal `rev` phase can pick the PR up.
+    """
+    if role == "mnt":
+        return f"chore({fr_id}): {_fr_title(fr_id) or fr_id}"
+    return f"test({fr_id}): backfill AC coverage"
+
+
+def mnt_footprint_violations(
+    fr_id: str,
+    branch: str,
+    base: str = "main",
+    extra: list[str] | None = None,
+) -> tuple[list[str], str | None]:
+    """Paths a `mnt` branch touches that fall outside the target FR's `owns:`.
+
+    Write-time enforcement and push-time verification fail differently: any
+    interpreter or shell construct the allow-list did not anticipate is a
+    silent hole in the former, and only an artifact-level check catches a
+    genuine *derivation* bug, where the grant itself was wrong. `fr_owns_globs`
+    is the authority for the grant in both cases. `extra` folds in paths that
+    are staged but not yet committed so the check is meaningful in dry-run.
+
+    Returns (violations, error). A non-None error means the check could not
+    run, which callers must treat as a refusal rather than a pass.
+    """
+    owns = fr_owns_globs(fr_id)
+    if not owns:
+        return ([], f"{fr_id} declares no `owns:`; cannot verify footprint")
+    ok, out = _git_capture(["diff", "--name-only", f"{base}...{branch}"], REPO_ROOT)
+    if not ok:
+        lines = _path_lines(out)
+        return ([], f"git diff {base}...{branch} failed: {lines[-1] if lines else '?'}")
+    touched = set(_path_lines(out)) | set(extra or [])
+    return (sorted(p for p in touched if not _owned(p, owns)), None)
+
+
 def _push_branch(branch: str) -> tuple[bool, str]:
     """`git push -u origin <branch>`. Fast-forward only — no force.
 
@@ -2162,6 +2446,8 @@ def _finalize_commit_subject(fr_id: str, role: str) -> str:
         return f"test({fr_id}): AC coverage"
     if role == "bkf":
         return f"test({fr_id}): backfill AC coverage"
+    if role == "mnt":
+        return f"chore({fr_id}): {_fr_title(fr_id) or fr_id}"
     return f"feat({fr_id}): {_fr_title(fr_id) or fr_id}"
 
 
@@ -2392,6 +2678,20 @@ def cmd_finalize(
         print(f"  {fr_id}.{role}  ERROR — branch {branch} does not exist locally")
         return 1
 
+    # Artifact-level backstop on the derived footprint. Runs before the push
+    # so a derivation or agent defect cannot reach a PR.
+    if role == "mnt":
+        violations, footprint_err = mnt_footprint_violations(fr_id, branch)
+        if footprint_err is not None:
+            print(f"  {fr_id}.mnt  ERROR — footprint check failed: {footprint_err}")
+            return 1
+        if violations:
+            print(
+                f"  {fr_id}.mnt  ERROR — branch touches {len(violations)} path(s) "
+                f"outside {fr_id} `owns:`: " + ", ".join(violations)
+            )
+            return 1
+
     ok, err = _gh_preflight(verbose=False)
     if not ok:
         print(f"  {fr_id}.{role}  ERROR — {err}")
@@ -2407,11 +2707,11 @@ def cmd_finalize(
                 f"gh pr create {'--draft ' if draft else ''}--base main --head {branch} "
                 f"(repo={nwo}, head={head_sha[:7] if head_sha else '?'})"
             )
-        elif role == "bkf":
+        elif role in ("bkf", "mnt"):
             print(
-                f"  {fr_id}.bkf  WOULD-FINALIZE  push {branch} -> origin; "
+                f"  {fr_id}.{role}  WOULD-FINALIZE  push {branch} -> origin; "
                 f"gh pr create {'--draft ' if draft else ''}--base main --head {branch} "
-                f"--title 'test({fr_id}): backfill AC coverage' "
+                f"--title '{_oneshot_pr_title(fr_id, role)}' "
                 f"(repo={nwo}, head={head_sha[:7] if head_sha else '?'})"
             )
         else:
@@ -2435,8 +2735,16 @@ def cmd_finalize(
         return _finalize_dev(fr_id, branch, head_sha, nwo, draft)
     if role == "rev":
         return _finalize_rev(fr_id, branch, head_sha, nwo, adapter)
-    if role == "bkf":
-        return _finalize_bkf(fr_id, branch, head_sha, nwo, draft)
+    if role in ("bkf", "mnt"):
+        return _finalize_oneshot(
+            fr_id,
+            branch,
+            head_sha,
+            nwo,
+            draft,
+            role=role,
+            pr_title=_oneshot_pr_title(fr_id, role),
+        )
     print(f"  {fr_id}.{role}  ERROR — unknown role")
     return 1
 
@@ -2540,16 +2848,21 @@ def _finalize_dev(
     return 0
 
 
-def _finalize_bkf(
-    fr_id: str, branch: str, head_sha: str | None, nwo: str | None, draft: bool
+def _finalize_oneshot(
+    fr_id: str,
+    branch: str,
+    head_sha: str | None,
+    nwo: str | None,
+    draft: bool,
+    role: str,
+    pr_title: str,
 ) -> int:
-    """Open or refresh a PR for the Reviewer-in-backfill-mode branch.
+    """Open or refresh a PR for a one-shot role's own branch (`bkf` / `mnt`).
 
-    Mirrors `_finalize_dev` but uses the bkf worktree path and a
-    backfill-specific PR title (`test(FR-XXXX): backfill AC coverage`).
-    PR_BODY.md is the agent's own deliverable in this mode.
+    Mirrors `_finalize_dev` but uses the role's worktree path and the role's
+    own PR title. PR_BODY.md is the agent's own deliverable in these modes.
     """
-    wt_path = REPO_ROOT / ".claude" / "worktrees" / f"bkf-{fr_id}"
+    wt_path = REPO_ROOT / ".claude" / "worktrees" / f"{role}-{fr_id}"
     pr_body_path = wt_path / "PR_BODY.md"
     if not pr_body_path.exists():
         show = subprocess.run(
@@ -2566,17 +2879,15 @@ def _finalize_bkf(
         )
         if show.returncode != 0:
             print(
-                f"  {fr_id}.bkf  ERROR — PR_BODY.md not found at {pr_body_path} "
+                f"  {fr_id}.{role}  ERROR — PR_BODY.md not found at {pr_body_path} "
                 "and not present on the branch; cannot create PR"
             )
             return 1
-        pr_body_path = DISPATCH_DIR / f"{fr_id}.bkf.pr_body.md"
+        pr_body_path = DISPATCH_DIR / f"{fr_id}.{role}.pr_body.md"
         pr_body_path.write_text(show.stdout, encoding="utf-8")
 
-    pr_title = f"test({fr_id}): backfill AC coverage"
-
     existing_pr = _gh_pr_for_branch(branch)
-    record = _load_pr_record(fr_id, "bkf") or {}
+    record = _load_pr_record(fr_id, role) or {}
     if existing_pr is not None:
         nwo_url = f"https://github.com/{nwo}/pull/{existing_pr}"
         record.update(
@@ -2590,8 +2901,8 @@ def _finalize_bkf(
                 "note": "PR already open; commits pushed as fast-forward",
             }
         )
-        _save_pr_record(fr_id, "bkf", record)
-        print(f"  {fr_id}.bkf  PR-EXISTS    #{existing_pr}  {nwo_url}")
+        _save_pr_record(fr_id, role, record)
+        print(f"  {fr_id}.{role}  PR-EXISTS    #{existing_pr}  {nwo_url}")
         return 0
 
     cmd = [
@@ -2615,7 +2926,7 @@ def _finalize_bkf(
     if proc.returncode != 0:
         err = (proc.stderr or proc.stdout or "").strip().splitlines()
         last = err[-1] if err else "gh pr create failed"
-        print(f"  {fr_id}.bkf  ERROR — gh pr create failed: {last}")
+        print(f"  {fr_id}.{role}  ERROR — gh pr create failed: {last}")
         return 1
     pr_url = (proc.stdout or "").strip().splitlines()[-1]
     pr_number_match = re.search(r"/pull/(\d+)$", pr_url)
@@ -2630,9 +2941,9 @@ def _finalize_bkf(
             "title": pr_title,
         }
     )
-    _save_pr_record(fr_id, "bkf", record)
+    _save_pr_record(fr_id, role, record)
     tag = "DRAFT-OPENED" if draft else "PR-OPENED"
-    print(f"  {fr_id}.bkf  {tag} #{pr_number}  {pr_url}")
+    print(f"  {fr_id}.{role}  {tag} #{pr_number}  {pr_url}")
     return 0
 
 
@@ -2802,61 +3113,75 @@ def cmd_finalize_all(role: str, apply: bool, draft: bool) -> int:
     return rc_total
 
 
-def cmd_backfill(fr_id: str, apply: bool, adapter: HarnessAdapter) -> int:
-    """One-shot Reviewer-in-backfill-mode spawn for an already-merged FR.
+def cmd_oneshot(fr_id: str, role: str, apply: bool, adapter: HarnessAdapter) -> int:
+    """One-shot per-FR spawn for a role that isn't tick-scheduled.
 
-    Use case: `reconcile-merged` flipped an FR to `merged` and the deploy
-    gate now reports missing `@covers` annotations because the original
-    PR landed without proper test coverage. This command spawns a
-    Reviewer session in backfill mode against `main`, with explicit
-    instructions (see `.claude/commands/reviewer-backfill.md`) to write
-    only the missing tests, run the gate, and produce a small follow-up
-    PR titled `test(FR-XXXX): backfill AC coverage`.
+    `bkf` (Reviewer in backfill mode) runs when `reconcile-merged` flipped an
+    FR to `merged` and the deploy gate now reports missing `@covers` because
+    the original PR landed without test coverage. It writes only the missing
+    tests and opens `test(FR-XXXX): backfill AC coverage`.
 
-    Branch: `claude/bkf-FR-XXXX`. Worktree: `.claude/worktrees/bkf-FR-XXXX`.
-    No tick-time scheduling — this is one-shot, dispatched per-FR by hand.
+    `mnt` (Developer in maintainer mode) runs for an FR whose `owns:` footprint
+    intersects the control-plane paths every other role denies. Its writable
+    footprint is derived from that FR's `owns:` and nothing else, so it refuses
+    to start against an FR that declares none.
+
+    Both branch off `main` into `claude/<role>-FR-XXXX`, author `PR_BODY.md`,
+    and open their own PR via `finalize --role <role>`. Neither is scheduled by
+    `tick` — they are dispatched per-FR by hand.
     """
-    label = ROLE_LABELS.get("bkf", "Reviewer (backfill)")
-    state, lock = lock_state(fr_id, "bkf")
+    label = ROLE_LABELS.get(role, role)
+    state, lock = lock_state(fr_id, role)
     if state == "held":
         print(
-            f"  {fr_id}.bkf  SKIP — {label} lock held "
+            f"  {fr_id}.{role}  SKIP — {label} lock held "
             f"(pid={lock['pid']}, since {lock['started_at_iso']})"
         )
         return 1
     if state == "stale":
         print(
-            f"  {fr_id}.bkf  WARN — stale {label} lock "
+            f"  {fr_id}.{role}  WARN — stale {label} lock "
             f"(pid={lock['pid']}, started {lock['started_at_iso']}); not auto-clearing"
         )
         return 1
     if state == "dead":
         print(
-            f"  {fr_id}.bkf  SKIP — orphaned lock "
+            f"  {fr_id}.{role}  SKIP — orphaned lock "
             f"(pid={lock['pid']} no longer alive); run `dispatch.py prune`"
         )
         return 1
     if state == "corrupt":
         print(
-            f"  {fr_id}.bkf  WARN — corrupt lockfile at {lock_path(fr_id, 'bkf')}; skipping"
+            f"  {fr_id}.{role}  WARN — corrupt lockfile at {lock_path(fr_id, role)}; skipping"
         )
         return 1
 
     spec_paths = list(SPECS_DIR.glob(f"{fr_id}-*.md"))
     if not spec_paths:
-        print(f"  {fr_id}.bkf  ERROR — no spec at specs/{fr_id}-*.md")
+        print(f"  {fr_id}.{role}  ERROR — no spec at specs/{fr_id}-*.md")
         return 1
 
-    result, pid, wt_path = spawn_role(fr_id, "bkf", apply=apply, adapter=adapter)
+    if role == "mnt":
+        owns = fr_owns_globs(fr_id)
+        if not owns:
+            print(
+                f"  {fr_id}.mnt  ERROR — {fr_id} declares no `owns:` frontmatter; "
+                "mnt derives its writable footprint from it and will not run unscoped"
+            )
+            return 1
+        granted, _ = mnt_permission_rules(owns)
+        print(f"  {fr_id}.mnt  FOOTPRINT    {', '.join(granted)}")
+
+    result, pid, wt_path = spawn_role(fr_id, role, apply=apply, adapter=adapter)
     if result == "dry-run":
-        wt_preview = REPO_ROOT / ".claude" / "worktrees" / f"bkf-{fr_id}"
-        preview = adapter.dry_run_preview(fr_id, "bkf", wt_preview)
-        print(f"  {fr_id}.bkf  WOULD-SPAWN  {preview}  (base=main)")
+        wt_preview = REPO_ROOT / ".claude" / "worktrees" / f"{role}-{fr_id}"
+        preview = adapter.dry_run_preview(fr_id, role, wt_preview)
+        print(f"  {fr_id}.{role}  WOULD-SPAWN  {preview}  (base=main)")
         return 0
     if result == "spawned":
         print(
-            f"  {fr_id}.bkf  SPAWNED      pid={pid}, worktree={wt_path}, "
-            f"log={DISPATCH_DIR / f'{fr_id}.bkf.log'}"
+            f"  {fr_id}.{role}  SPAWNED      pid={pid}, worktree={wt_path}, "
+            f"log={DISPATCH_DIR / f'{fr_id}.{role}.log'}"
         )
         return 0
     if result == "binary-not-found":
@@ -2866,10 +3191,10 @@ def cmd_backfill(fr_id: str, apply: bool, adapter: HarnessAdapter) -> int:
             else "install Cursor + run `cursor-agent login`, or set DISPATCH_HARNESS=claude-code"
         )
         print(
-            f"  {fr_id}.bkf  ERROR        `{adapter.binary_name}` CLI not on PATH; {hint}"
+            f"  {fr_id}.{role}  ERROR        `{adapter.binary_name}` CLI not on PATH; {hint}"
         )
         return 1
-    print(f"  {fr_id}.bkf  ERROR        {result}")
+    print(f"  {fr_id}.{role}  ERROR        {result}")
     return 1
 
 
@@ -3237,6 +3562,91 @@ def fr_owns_globs(fr_id: str) -> list[str]:
         return [str(g) for g in (meta.get("owns") or []) if str(g).strip()]
     return []
 
+
+def _owned(path: str, owns: list[str]) -> bool:
+    """True iff a concrete repo-relative path is covered by an `owns:` glob."""
+    return any(path == o or fnmatch.fnmatch(path, o) for o in owns)
+
+
+def _protected_touched(protected: str, owns: list[str]) -> bool:
+    """True iff the FR owns something at or under a protected glob."""
+    if "**" in protected:
+        root = protected.split("**", 1)[0]
+        return any(o.startswith(root) for o in owns)
+    return protected in owns
+
+
+def mnt_permission_rules(owns: list[str]) -> tuple[list[str], list[str]]:
+    """Derive a `mnt` run's (granted_globs, protected_denies) from `owns:`.
+
+    A broad protected glob is *narrowed*, never dropped: Claude Code resolves
+    deny over allow, so leaving `.agent-team/**` denied would silently defeat
+    an `Edit(.agent-team/roles/reviewer.md)` grant. Instead the broad entry is
+    replaced by a concrete deny for each currently-tracked sibling the FR does
+    not own, which keeps the rest of the tree protected without granting a
+    subtree-wide escape.
+    """
+    granted = [g for g in owns if g not in MNT_NEVER_WRITABLE]
+    denies: list[str] = []
+    for protected in MNT_PROTECTED_GLOBS:
+        if protected in MNT_NEVER_WRITABLE or not _protected_touched(protected, owns):
+            denies.append(protected)
+            continue
+        # The FR owns something under this glob. Deny each unowned sibling.
+        root = protected.split("**", 1)[0].rstrip("/")
+        siblings = sorted(
+            p.relative_to(REPO_ROOT).as_posix()
+            for p in (REPO_ROOT / root).rglob("*")
+            if p.is_file()
+        )
+        denies.extend(s for s in siblings if not _owned(s, owns))
+    return granted, denies
+
+
+def mnt_unwritable_grants(owns: list[str]) -> list[str]:
+    """`owns:` globs that are grantable in a settings file but harness-guarded.
+
+    The derivation cannot make these writable, so a `mnt` run needs to know
+    which of its declared paths it will not be able to touch — otherwise the
+    only way to finish its declared work looks like bypassing the deny list.
+    """
+    out: list[str] = []
+    for glob in owns:
+        for guarded in HARNESS_GUARDED_GLOBS:
+            root = guarded.split("**", 1)[0]
+            if glob.startswith(root) or fnmatch.fnmatch(glob, guarded):
+                out.append(glob)
+                break
+    return out
+
+
+def mnt_unwritable_hint(glob: str) -> str | None:
+    """The sanctioned route for updating a harness-guarded path, if known."""
+    for prefix, hint in HARNESS_GUARDED_SOURCE_HINT.items():
+        if glob.startswith(prefix):
+            return hint
+    return None
+
+
+def _mnt_bash_allow() -> list[str]:
+    """Sanctioned Bash grants for `mnt` (see MNT_SANCTIONED_ENTRYPOINTS)."""
+    out = [
+        f"Bash({interp} {entry}*)"
+        for interp in MNT_INTERPRETERS
+        for entry in MNT_SANCTIONED_ENTRYPOINTS
+    ]
+    out.extend(
+        [
+            "Bash(pytest *)",
+            "Bash(pytest)",
+            "Bash(ruff *)",
+            f"Bash({VENV_DIRNAME}/Scripts/pytest *)",
+            f"Bash({VENV_DIRNAME}/Scripts/ruff *)",
+            f"Bash({VENV_DIRNAME}/bin/pytest *)",
+            f"Bash({VENV_DIRNAME}/bin/ruff *)",
+        ]
+    )
+    return out
 
 
 _ESCALATION_MARKER = re.compile(r"^##\s+ESCALATION\b", re.MULTILINE)
@@ -4264,7 +4674,7 @@ def main() -> int:
     p_kill.add_argument("fr_id", help="FR id (e.g., FR-0002)")
     p_kill.add_argument(
         "--role",
-        choices=("dev", "rev", "bkf"),
+        choices=("dev", "rev", "bkf", "mnt"),
         default="dev",
         help="role label (default: dev)",
     )
@@ -4276,7 +4686,7 @@ def main() -> int:
     p_sum.add_argument("fr_id", help="FR id (e.g., FR-0002)")
     p_sum.add_argument(
         "--role",
-        choices=("dev", "rev", "bkf"),
+        choices=("dev", "rev", "bkf", "mnt"),
         default="dev",
         help="role label (default: dev)",
     )
@@ -4294,11 +4704,12 @@ def main() -> int:
     p_fin.add_argument("fr_id", help="FR id (e.g., FR-XXXX)")
     p_fin.add_argument(
         "--role",
-        choices=("dev", "rev", "bkf"),
+        choices=("dev", "rev", "bkf", "mnt"),
         default="dev",
         help=(
             "dev: push + open draft PR. rev: push + post gh pr review against "
-            "parent. bkf: push + open backfill PR (`test(FR-XXXX): backfill AC coverage`)."
+            "parent. bkf: push + open backfill PR (`test(FR-XXXX): backfill AC "
+            "coverage`). mnt: push + open maintainer PR (`chore(FR-XXXX): <title>`)."
         ),
     )
     p_fin.add_argument(
@@ -4328,6 +4739,23 @@ def main() -> int:
     )
     add_harness(p_bkf)
 
+    p_mnt = sub.add_parser(
+        "maintain",
+        help=(
+            "One-shot Developer-in-maintainer-mode spawn for an FR whose "
+            "`owns:` footprint intersects the control-plane paths every other "
+            "role denies. Writable footprint is derived from that FR's `owns:` "
+            "and nothing else. Opens `chore(FR-XXXX): <title>`."
+        ),
+    )
+    p_mnt.add_argument("fr_id", help="FR id (e.g., FR-XXXX)")
+    p_mnt.add_argument(
+        "--apply",
+        action="store_true",
+        help="Actually spawn the agent (dry-run by default)",
+    )
+    add_harness(p_mnt)
+
     p_recon = sub.add_parser(
         "reconcile-merged",
         help=(
@@ -4348,9 +4776,9 @@ def main() -> int:
     )
     p_finall.add_argument(
         "--role",
-        choices=("dev", "rev", "bkf"),
+        choices=("dev", "rev", "bkf", "mnt"),
         default="dev",
-        help="dev (default), rev, or bkf",
+        help="dev (default), rev, bkf, or mnt",
     )
     p_finall.add_argument(
         "--apply",
@@ -4442,7 +4870,10 @@ def main() -> int:
         return cmd_reconcile_merged(apply=args.apply)
     if args.cmd == "backfill":
         adapter = get_adapter(args.harness)
-        return cmd_backfill(args.fr_id, apply=args.apply, adapter=adapter)
+        return cmd_oneshot(args.fr_id, "bkf", apply=args.apply, adapter=adapter)
+    if args.cmd == "maintain":
+        adapter = get_adapter(args.harness)
+        return cmd_oneshot(args.fr_id, "mnt", apply=args.apply, adapter=adapter)
     if args.cmd == "wave":
         adapter = get_adapter(args.harness)
         return cmd_wave(
