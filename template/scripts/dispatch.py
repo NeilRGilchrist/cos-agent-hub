@@ -79,6 +79,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Protocol
 
@@ -3214,6 +3215,1005 @@ def cmd_summary(fr_id: str, role: str, harness: str | None) -> int:
     return 0
 
 
+REVIEW_CYCLE_BUDGET = 3
+
+
+
+def fr_owns_globs(fr_id: str) -> list[str]:
+    """The target FR's `owns:` frontmatter, as a list of path globs.
+
+    Empty when the spec is missing, unparseable, or declares no `owns:`.
+    This is the sole authority for a role run's writable footprint, so an
+    empty result must abort the spawn rather than fall back to a default.
+    """
+    for path in sorted(SPECS_DIR.glob(f"{fr_id}-*.md")):
+        m = FRONTMATTER_PATTERN.match(path.read_text(encoding="utf-8"))
+        if m is None:
+            return []
+        try:
+            meta = yaml.safe_load(m.group(1)) or {}
+        except yaml.YAMLError:
+            return []
+        return [str(g) for g in (meta.get("owns") or []) if str(g).strip()]
+    return []
+
+
+
+_ESCALATION_MARKER = re.compile(r"^##\s+ESCALATION\b", re.MULTILINE)
+
+
+@dataclasses.dataclass
+class AgentOutcome:
+    """Structured evaluation of a completed agent run."""
+
+    status: str  # "success" | "error" | "escalation" | "timeout" | "no-log"
+    summary: str
+    verdict: str | None = None  # rev-only: "approve" | "request-changes" | "comment"
+
+
+def _wait_for_phase(
+    targets: list[tuple[str, str]],
+    poll_interval: float,
+    phase_timeout: float,
+) -> dict[str, str]:
+    """Poll until all (fr_id, role) locks are no longer held or timeout fires.
+
+    Returns {fr_id: "completed" | "timeout"} for each target.
+    """
+    results: dict[str, str] = {}
+    pending = list(targets)
+    deadline = time.monotonic() + phase_timeout
+
+    while pending and time.monotonic() < deadline:
+        still_pending: list[tuple[str, str]] = []
+        for fr_id, role in pending:
+            state, _ = lock_state(fr_id, role)
+            if state == "held":
+                still_pending.append((fr_id, role))
+            else:
+                results[fr_id] = "completed"
+        pending = still_pending
+        if pending:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            time.sleep(min(poll_interval, remaining))
+
+    for fr_id, role in pending:
+        state, data = lock_state(fr_id, role)
+        if state == "held":
+            pid = int((data or {}).get("pid", 0))
+            if pid:
+                kill_pid(pid)
+                lock_path(fr_id, role).unlink(missing_ok=True)
+                print(f"  {fr_id}.{role}  TIMEOUT — killed pid={pid}")
+        results[fr_id] = "timeout"
+
+    return results
+
+
+def _evaluate_agent_outcome(
+    fr_id: str,
+    role: str,
+    adapter: HarnessAdapter,
+) -> AgentOutcome:
+    """Parse the agent's NDJSON log and return a structured outcome."""
+    log_path = DISPATCH_DIR / f"{fr_id}.{role}.log"
+    if not log_path.exists():
+        return AgentOutcome(status="no-log", summary="no log file found")
+
+    summary = adapter.parse_log(log_path)
+
+    if summary.is_error:
+        detail = summary.result_subtype or "unknown error"
+        return AgentOutcome(status="error", summary=f"agent error: {detail}")
+
+    if summary.last_text and _ESCALATION_MARKER.search(summary.last_text):
+        return AgentOutcome(status="escalation", summary="agent emitted ESCALATION block")
+
+    if role == "rev":
+        verdict, _ = _extract_review_verdict(summary.last_text)
+        return AgentOutcome(status="success", summary="reviewer completed", verdict=verdict)
+
+    return AgentOutcome(status="success", summary="agent completed successfully")
+
+
+
+@dataclasses.dataclass
+class WaveFRResult:
+    """Per-FR outcome tracked through the wave pipeline."""
+
+    fr_id: str
+    dev_outcome: AgentOutcome | None = None
+    dev_finalize_ok: bool = False
+    pr_number: int | None = None
+    pr_url: str | None = None
+    rev_outcome: AgentOutcome | None = None
+    rev_finalize_ok: bool = False
+    rev_verdict: str | None = None
+    dropped_at: str | None = None
+    drop_reason: str | None = None
+    # Multi-round bookkeeping. `rounds_ran` counts completed Dev->Reviewer
+    # cycles (round 1 is the base pipeline); `round_verdicts` holds one verdict
+    # per completed round in order; `force_escalated` is set when the budget was
+    # exhausted without an approval.
+    rounds_ran: int = 1
+    round_verdicts: list[str] = dataclasses.field(default_factory=list)
+    force_escalated: bool = False
+
+    @property
+    def completed_e2e(self) -> bool:
+        return self.dev_finalize_ok and self.rev_finalize_ok
+
+
+def _write_wave_synthesis(
+    results: list[WaveFRResult],
+    started_at: str,
+    elapsed_s: float,
+) -> Path:
+    """Write a synthesis report to stdout and _dispatch/wave-<timestamp>.md."""
+    # A rework FR finalized both legs in round 1, so completed_e2e
+    # stays True even if a later round dropped mechanically — exclude dropped
+    # from "completed" so the drop is not masked.
+    completed = [r for r in results if r.completed_e2e and not r.dropped_at]
+    dropped = [r for r in results if r.dropped_at]
+    dev_only = [r for r in results if r.dev_finalize_ok and not r.rev_finalize_ok and not r.dropped_at]
+    escalations = [r for r in results if r.dev_outcome and r.dev_outcome.status == "escalation"
+                   or r.rev_outcome and r.rev_outcome.status == "escalation"]
+    force_escalated = [r for r in results if r.force_escalated]
+
+    lines: list[str] = []
+    lines.append(f"# Wave Synthesis — {started_at}")
+    lines.append("")
+    lines.append("## Summary")
+    lines.append(
+        f"Processed {len(results)} FR(s). "
+        f"{len(completed)} completed end-to-end. "
+        f"{len(dev_only)} dev-only (reviewer pending/dropped). "
+        f"{len(dropped)} dropped. "
+        f"Elapsed: {_fmt_secs(elapsed_s)}."
+    )
+    lines.append("")
+    lines.append("## Per-FR Results")
+    for r in results:
+        # AC-9: a multi-round run is auditable — record how many rounds ran and
+        # each round's verdict. Kept off single-round lines to preserve today's
+        # output exactly when --rounds is 1.
+        rounds_note = ""
+        if r.rounds_ran > 1 or len(r.round_verdicts) > 1:
+            rounds_note = (
+                f", rounds: {r.rounds_ran}, verdicts: [{', '.join(r.round_verdicts)}]"
+            )
+        if r.dropped_at:
+            lines.append(f"- {r.fr_id}: DROPPED at {r.dropped_at} ({r.drop_reason}){rounds_note}")
+        elif r.completed_e2e:
+            verdict_note = f", reviewer: {r.rev_verdict}" if r.rev_verdict else ""
+            escalate_note = " [FORCE-ESCALATE: budget exhausted]" if r.force_escalated else ""
+            pr_ref = f"PR #{r.pr_number}" if r.pr_number else "PR opened"
+            lines.append(f"- {r.fr_id}: {pr_ref} (draft){verdict_note}{rounds_note}{escalate_note}")
+        elif r.dev_finalize_ok:
+            pr_ref = f"PR #{r.pr_number}" if r.pr_number else "PR opened"
+            lines.append(f"- {r.fr_id}: {pr_ref} (draft), reviewer phase incomplete")
+        else:
+            lines.append(f"- {r.fr_id}: incomplete (dev not finalized)")
+    lines.append("")
+
+    # AC-2 / AC-9: budget-exhaustion force-escalations are their own section so
+    # the human sees them without reading per-FR lines.
+    if force_escalated:
+        lines.append("## Force Escalations (budget exhausted)")
+        for r in force_escalated:
+            lines.append(
+                f"- {r.fr_id}: {r.rounds_ran} Dev<->Reviewer cycle(s) ran, "
+                f"last verdict request-changes — escalate to a human "
+                f"(verdicts: [{', '.join(r.round_verdicts)}])"
+            )
+        lines.append("")
+
+    if escalations:
+        lines.append("## Open Escalations")
+        for r in escalations:
+            phase = "dev" if r.dev_outcome and r.dev_outcome.status == "escalation" else "rev"
+            lines.append(f"- {r.fr_id}: escalation during {phase} (see _dispatch/{r.fr_id}.{phase}.log)")
+    else:
+        lines.append("## Open Escalations")
+        lines.append("(none)")
+    lines.append("")
+
+    next_steps: list[str] = []
+    mergeable = [r for r in completed if r.rev_verdict == "approve"]
+    reviewable = [r for r in completed if r.rev_verdict != "approve"]
+    if mergeable:
+        prs = ", ".join(f"PR #{r.pr_number}" for r in mergeable if r.pr_number)
+        next_steps.append(f"- Review and merge: {prs}")
+    if reviewable:
+        prs = ", ".join(f"PR #{r.pr_number}" for r in reviewable if r.pr_number)
+        next_steps.append(f"- Address reviewer feedback: {prs}")
+    if dev_only:
+        ids = ", ".join(r.fr_id for r in dev_only)
+        next_steps.append(f"- Reviewer phase pending: {ids}")
+    for r in dropped:
+        phase = r.dropped_at or "unknown"
+        next_steps.append(f"- Investigate: {r.fr_id} dropped at {phase} (see _dispatch/{r.fr_id}.*.log)")
+
+    if next_steps:
+        lines.append("## Next Steps")
+        lines.extend(next_steps)
+    lines.append("")
+
+    report = "\n".join(lines)
+    print()
+    print("=" * 60)
+    for line in lines:
+        print(line)
+    print("=" * 60)
+
+    DISPATCH_DIR.mkdir(parents=True, exist_ok=True)
+    ts = started_at.replace(":", "-")
+    report_path = DISPATCH_DIR / f"wave-{ts}.md"
+    report_path.write_text(report, encoding="utf-8")
+    print(f"\nSynthesis written to {report_path}")
+    return report_path
+
+
+# ---------------------------------------------------------------------------
+# Wave rework loop: re-dispatch the Developer on a request-changes
+# verdict, up to the CLAUDE.md iteration budget.
+# ---------------------------------------------------------------------------
+
+
+def _dev_worktree(fr_id: str) -> Path:
+    return REPO_ROOT / ".claude" / "worktrees" / f"dev-{fr_id}"
+
+
+def _worktree_python(wt_path: Path) -> str:
+    """The worktree's dispatch venv interpreter if present, else sys.executable.
+
+    The venv carries the test dependencies `ensure_dev_venv` provisioned; the
+    dispatcher's own interpreter may not.
+    """
+    for rel in (
+        f"{VENV_DIRNAME}/Scripts/python.exe",
+        f"{VENV_DIRNAME}/Scripts/python",
+        f"{VENV_DIRNAME}/bin/python",
+    ):
+        cand = wt_path / rel
+        if cand.exists():
+            return str(cand)
+    return sys.executable
+
+
+_PYTEST_FAIL_RE = re.compile(r"^(?:FAILED|ERROR)\s+(\S+)", re.MULTILINE)
+
+
+def _parse_failing_tests(pytest_output: str | None) -> list[str]:
+    """Failing/erroring test node ids from a `pytest -rfE` summary, in order.
+
+    Reads the machine-stable `FAILED <nodeid>` / `ERROR <nodeid>` summary lines,
+    not human prose, so a brief names real tests rather than a paraphrase.
+    De-duplicated, order-preserving.
+    """
+    seen: list[str] = []
+    for m in _PYTEST_FAIL_RE.finditer(pytest_output or ""):
+        node = m.group(1)
+        if node not in seen:
+            seen.append(node)
+    return seen
+
+
+def _collect_failing_tests(wt_path: Path, timeout_s: float = 900) -> list[str]:
+    """Run the worktree's suite and return failing test node ids.
+
+    The dev worktree, synced with the Reviewer's committed tests, is the ground
+    truth for "what the Developer must make pass". A crash or
+    timeout yields an empty list; the brief still carries the verdict text.
+    """
+    py = _worktree_python(wt_path)
+    try:
+        proc = subprocess.run(
+            [py, "-m", "pytest", "-q", "--no-header", "--tb=no", "-rfE",
+             "-p", "no:cacheprovider"],
+            cwd=str(wt_path),
+            capture_output=True,
+            text=True,
+            timeout=timeout_s,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    return _parse_failing_tests((proc.stdout or "") + "\n" + (proc.stderr or ""))
+
+
+def _read_review_md_on_branch(fr_id: str) -> str | None:
+    """The committed `REVIEW.md` on the Reviewer's branch, or None."""
+    branch = _branch_for(fr_id, "rev")
+    proc = subprocess.run(
+        ["git", "-C", str(REPO_ROOT), "show", f"{branch}:REVIEW.md"],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    if proc.returncode != 0:
+        return None
+    return proc.stdout
+
+
+def _reviewer_final_text(fr_id: str, adapter: HarnessAdapter) -> str:
+    """The Reviewer's full final message, for quoting in a rework brief.
+
+    Prefers the parsed reviewer log; falls back to the committed REVIEW.md.
+    """
+    log_path = DISPATCH_DIR / f"{fr_id}.rev.log"
+    if log_path.exists():
+        text = adapter.parse_log(log_path).last_text
+        if text:
+            return text
+    return _read_review_md_on_branch(fr_id) or ""
+
+
+def _resolve_rework_verdict(fr_id: str, log_verdict: str | None) -> str:
+    """The verdict that drives the loop, from the Reviewer's own artifacts.
+
+    Never GitHub's `reviewDecision`. Prefer the verdict the
+    dispatcher already extracts from the parsed reviewer log (the same
+    `_extract_review_verdict` used to choose the `gh pr review` flag); when that
+    is inconclusive ("comment"), fall back to the committed REVIEW.md and run
+    the identical extraction over it. A request-changes that had to be posted
+    via the own-PR `--comment` fallback still resolves to request-changes here,
+    because the source is the reviewer's text — not how GitHub recorded it.
+
+    """
+    if log_verdict in ("approve", "request-changes"):
+        return log_verdict
+    review_text = _read_review_md_on_branch(fr_id)
+    if review_text:
+        verdict, _ = _extract_review_verdict(review_text)
+        return verdict
+    return log_verdict or "comment"
+
+
+def _generate_rework_brief(
+    *,
+    fr_id: str,
+    fr_title: str | None,
+    round_num: int,
+    budget: int,
+    verdict_text: str,
+    failing_tests: list[str],
+    owns: list[str],
+) -> str:
+    """A generated round-2+ Developer rework brief.
+
+    Carries the FR id + title, the round number against the budget, the
+    Reviewer's verdict text, the failing test names, and the FR's `owns:`
+    footprint verbatim as the authoritative permitted write surface. It does
+    NOT narrow the footprint and does NOT name a file as the place a fix
+    belongs — scoping within `owns` is the Developer's judgement. Naming a file
+    the failing assertion never reads is the error this generated brief
+    exists to prevent.
+
+    """
+    title = fr_title or fr_id
+    lines: list[str] = []
+    lines.append(f"# Rework brief — {fr_id}: {title}")
+    lines.append("")
+    lines.append(
+        f"This is Dev<->Reviewer round {round_num} of a budget of {budget} "
+        f"(CLAUDE.md). The Reviewer requested changes on the previous round. "
+        f"Address the review, commit on the current branch, and refresh "
+        f"PR_BODY.md."
+    )
+    lines.append("")
+    lines.append("## Reviewer verdict")
+    lines.append("")
+    lines.append((verdict_text or "(no verdict text captured)").strip())
+    lines.append("")
+    lines.append("## Failing tests")
+    lines.append("")
+    if failing_tests:
+        for node in failing_tests:
+            lines.append(f"- `{node}`")
+    else:
+        lines.append(
+            "- (none captured mechanically — read the Reviewer verdict above "
+            "and REVIEW.md in your worktree)"
+        )
+    lines.append("")
+    lines.append("## Permitted write footprint")
+    lines.append("")
+    lines.append(
+        "These are the paths this FR declares in `owns:`. This is your "
+        "authoritative and complete permitted write footprint — no narrower, "
+        "no wider. Choosing which of these to change to satisfy the review is "
+        "your judgement; this brief does not prescribe a file."
+    )
+    lines.append("")
+    if owns:
+        for glob in owns:
+            lines.append(f"- `{glob}`")
+    else:
+        lines.append(
+            "- (the FR declares no `owns:` — do not write code; escalate, as "
+            "there is no permitted footprint)"
+        )
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _write_rework_brief(wt_path: Path, fr_id: str, round_num: int, text: str) -> str:
+    """Write the generated brief into the worktree and return its rel path."""
+    brief_dir = wt_path / "_dispatch"
+    brief_dir.mkdir(parents=True, exist_ok=True)
+    rel = f"_dispatch/round{round_num}-{fr_id}-dev.md"
+    (wt_path / rel).write_text(text, encoding="utf-8")
+    return rel
+
+
+def _covers_tests_present(wt_path: Path) -> bool:
+    """True iff any file under the worktree's tests/ carries an @covers tag."""
+    tests_dir = wt_path / "tests"
+    if not tests_dir.is_dir():
+        return False
+    for path in tests_dir.rglob("*"):
+        if not path.is_file():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        if "@covers" in text:
+            return True
+    return False
+
+
+def _prepare_dev_worktree_for_rework(fr_id: str) -> tuple[bool, str]:
+    """Sync the Reviewer's committed work into the dev worktree and verify it.
+
+    Before a rework round starts, REVIEW.md and the @covers test
+    files must be present in the Developer's worktree, or the round does not
+    start. The Reviewer commits both onto `claude/rev-<FR>` (branched off the
+    dev branch); merging that branch into the dev worktree is what puts them in
+    front of the Developer. A failed merge or a missing artifact is a
+    mechanical failure that stops the round without consuming a budget round.
+
+    """
+    dev_wt = _dev_worktree(fr_id)
+    if not dev_wt.exists():
+        return (False, f"dev worktree missing at {dev_wt}")
+    rev_branch = _branch_for(fr_id, "rev")
+    if not _git_branch_exists(rev_branch):
+        return (False, f"reviewer branch {rev_branch} does not exist — no review to sync")
+    merge = subprocess.run(
+        ["git", "-C", str(dev_wt), "merge", rev_branch, "--no-edit",
+         "-m", f"merge {rev_branch} into dev worktree (rework sync)"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if merge.returncode != 0:
+        # Abort a half-applied merge so the worktree is left usable.
+        subprocess.run(
+            ["git", "-C", str(dev_wt), "merge", "--abort"],
+            capture_output=True, text=True, timeout=15,
+        )
+        err = (merge.stderr or merge.stdout or "merge failed").strip()[:200]
+        return (False, f"could not merge {rev_branch} into dev worktree: {err}")
+    if not (dev_wt / "REVIEW.md").exists():
+        return (False, "REVIEW.md not present in dev worktree after sync")
+    if not _covers_tests_present(dev_wt):
+        return (False, "no @covers test files present in dev worktree after sync")
+    return (True, f"synced {rev_branch} (REVIEW.md + @covers tests present)")
+
+
+def _run_one_rework_round(
+    fr_id: str,
+    round_num: int,
+    budget: int,
+    verdict_text: str,
+    draft: bool,
+    adapter: HarnessAdapter,
+    phase_timeout: float,
+    poll_interval: float,
+) -> tuple[str | None, str]:
+    """Run a single Dev->Reviewer rework cycle for one FR.
+
+    Returns `(verdict, note)`. `verdict` is the Reviewer's resolved verdict when
+    the round completed end-to-end; it is None on a mechanical failure (AC-7
+    precondition, spawn/monitor/finalize error, timeout), which stops the FR
+    without consuming a budget round.
+    """
+    ok, prep_note = _prepare_dev_worktree_for_rework(fr_id)
+    if not ok:
+        return (None, f"precondition: {prep_note}")
+
+    dev_wt = _dev_worktree(fr_id)
+    failing = _collect_failing_tests(dev_wt)
+    brief = _generate_rework_brief(
+        fr_id=fr_id,
+        fr_title=_fr_title(fr_id),
+        round_num=round_num,
+        budget=budget,
+        verdict_text=verdict_text,
+        failing_tests=failing,
+        owns=fr_owns_globs(fr_id),
+    )
+    rel = _write_rework_brief(dev_wt, fr_id, round_num, brief)
+    extra = (
+        f"You are in Dev<->Reviewer rework round {round_num} of {budget}. "
+        f"A generated rework brief is at `{rel}` in this worktree: read it "
+        f"first. It carries the Reviewer's verdict, the failing tests, and your "
+        f"authoritative permitted write footprint (the FR's `owns:`). The "
+        f"Reviewer's tests and REVIEW.md are already in this worktree."
+    )
+
+    # Developer rework leg
+    result, _pid, _wt = spawn_role(fr_id, "dev", apply=True, adapter=adapter, extra_prompt=extra)
+    if result != "spawned":
+        return (None, f"dev re-dispatch failed: {result}")
+    poll = _wait_for_phase([(fr_id, "dev")], poll_interval, phase_timeout)
+    if poll.get(fr_id) == "timeout":
+        return (None, "dev rework timed out")
+    dev_outcome = _evaluate_agent_outcome(fr_id, "dev", adapter)
+    if dev_outcome.status != "success":
+        return (None, f"dev rework did not complete: {dev_outcome.summary}")
+    if cmd_finalize(fr_id, "dev", apply=True, draft=draft, adapter=adapter) != 0:
+        return (None, "dev rework finalize failed")
+
+    # Reviewer re-review leg
+    result, _pid, _wt = spawn_role(fr_id, "rev", apply=True, adapter=adapter)
+    if result != "spawned":
+        return (None, f"reviewer re-dispatch failed: {result}")
+    poll = _wait_for_phase([(fr_id, "rev")], poll_interval, phase_timeout)
+    if poll.get(fr_id) == "timeout":
+        return (None, "reviewer re-review timed out")
+    rev_outcome = _evaluate_agent_outcome(fr_id, "rev", adapter)
+    if rev_outcome.status != "success":
+        return (None, f"reviewer re-review did not complete: {rev_outcome.summary}")
+    if cmd_finalize(fr_id, "rev", apply=True, adapter=adapter) != 0:
+        return (None, "reviewer re-review finalize failed")
+
+    verdict = _resolve_rework_verdict(fr_id, rev_outcome.verdict)
+    return (verdict, "round completed")
+
+
+def _run_rework_rounds(
+    results_by_id: dict[str, WaveFRResult],
+    rounds: int,
+    draft: bool,
+    adapter: HarnessAdapter,
+    phase_timeout: float,
+    poll_interval: float,
+) -> None:
+    """Drive rounds 2..N for every FR whose round-1 verdict was request-changes.
+
+    Re-dispatch Dev then Reviewer while the verdict stays
+    request-changes and budget remains. Exhausting the budget without an
+    approval flags a force-escalation and does not start a further round.
+    """
+    for fr_id, r in results_by_id.items():
+        if r.rev_verdict != "request-changes" or r.dropped_at:
+            continue
+        while r.rounds_ran < rounds:
+            round_num = r.rounds_ran + 1
+            print(f"  {fr_id}  REWORK round {round_num}/{rounds} — "
+                  f"reviewer requested changes")
+            verdict_text = _reviewer_final_text(fr_id, adapter)
+            new_verdict, note = _run_one_rework_round(
+                fr_id, round_num, rounds, verdict_text, draft, adapter,
+                phase_timeout, poll_interval,
+            )
+            if new_verdict is None:
+                # Mechanical / precondition failure: stop the FR, do not consume
+                # a budget round (open-question default).
+                r.dropped_at = f"rework-round-{round_num}"
+                r.drop_reason = note
+                print(f"  {fr_id}  REWORK STOPPED — {note}")
+                break
+            r.rounds_ran = round_num
+            r.round_verdicts.append(new_verdict)
+            r.rev_verdict = new_verdict
+            print(f"  {fr_id}  REWORK round {round_num} verdict={new_verdict}")
+            if new_verdict == "approve":
+                break
+            if new_verdict != "request-changes":
+                # Inconclusive ("comment"): the loop only re-drives on an
+                # explicit request-changes. Leave it for a human.
+                break
+        if (
+            r.rev_verdict == "request-changes"
+            and r.rounds_ran >= rounds
+            and not r.dropped_at
+        ):
+            r.force_escalated = True
+            print(f"  {fr_id}  FORCE-ESCALATE — {rounds} Dev<->Reviewer cycle(s) "
+                  f"exhausted without approval; escalate to a human")
+
+
+def cmd_wave(
+    apply: bool,
+    adapter: HarnessAdapter,
+    draft: bool = True,
+    timeout: float = 7200,
+    phase_timeout: float = 3600,
+    poll_interval: float = 30,
+    fr_filter: list[str] | None = None,
+    rounds: int = 1,
+) -> int:
+    """Autonomous dispatch-to-PR pipeline.
+
+    Chains: pre-flight -> dev tick -> dev monitor -> dev evaluate/finalize
+    -> rev tick -> rev monitor -> rev evaluate/finalize -> synthesis.
+
+    In dry-run mode (apply=False), previews what each phase would do
+    without spawning agents, pushing branches, or touching GitHub.
+
+
+    `fr_filter` restricts Phase 1's dev selection; every later phase derives
+    its own worklist from that set (`results_by_id`, `dev_finalized`), so the
+    filter propagates through monitor, finalize, rev tick and synthesis without
+    per-phase re-filtering. None preserves the unfiltered behaviour exactly.
+
+    `rounds` is the Dev<->Reviewer iteration budget for this wave.
+    The default of 1 preserves the single-pass behaviour exactly. Values above
+    2..REVIEW_CYCLE_BUDGET re-dispatch the Developer on a request-changes
+    verdict; a request beyond the budget is rejected rather than clamped.
+
+    """
+    if rounds < 1 or rounds > REVIEW_CYCLE_BUDGET:
+        print(
+            f"Wave aborted: --rounds {rounds} is out of range. The Dev<->Reviewer "
+            f"budget is {REVIEW_CYCLE_BUDGET} cycles (CLAUDE.md); pass a value "
+            f"between 1 and {REVIEW_CYCLE_BUDGET}."
+        )
+        return 2
+
+    wave_start = time.monotonic()
+    started_at = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+    print(f"Wave started at {started_at} ({'APPLY' if apply else 'dry-run'}, "
+          f"harness={adapter.name}, draft={draft}, rounds={rounds})")
+    print(f"Timeouts: total={_fmt_secs(timeout)}, phase={_fmt_secs(phase_timeout)}, "
+          f"poll={poll_interval}s")
+    print()
+
+    # ------------------------------------------------------------------
+    # Phase 0: Pre-flight
+    # ------------------------------------------------------------------
+    print("--- Phase 0: Pre-flight ---")
+
+    ok, err = _gh_preflight(verbose=False)
+    if not ok:
+        print(f"Wave aborted: GitHub integration required ({err})")
+        print(GH_AUTH_PREFLIGHT_HINT)
+        return 1
+
+    pruned = prune_dead_locks(verbose=False)
+    if pruned:
+        print(f"Auto-pruned {pruned} dead lock(s).")
+
+    if apply:
+        recon = reconcile_merged_prs(apply=True, verbose=False)
+        if recon.flipped or recon.cleaned:
+            bits = []
+            if recon.flipped:
+                bits.append(f"flipped status: {sorted(set(recon.flipped))}")
+            if recon.cleaned:
+                bits.append(f"cleaned: {sorted(set(recon.cleaned))}")
+            print(f"Reconciled merged PRs — {'; '.join(bits)}")
+    else:
+        recon = reconcile_merged_prs(apply=False, verbose=False)
+        if recon.flipped:
+            print(f"WOULD reconcile: {sorted(set(recon.flipped))}")
+
+    frs = load_frs()
+    if not frs:
+        print("No FRs found in specs/")
+        return 0
+
+    runnable = runnable_frs(frs)
+    if fr_filter is not None:
+        runnable, problems = filter_frs_by_selector(frs, fr_filter, "dev")
+        if problems:
+            print("Wave aborted: --fr selection cannot run for Developer:")
+            for problem in problems:
+                print(f"  {problem}")
+            return 1
+        print(f"--fr filter active: {[fr['id'] for fr in runnable]}")
+    if not runnable:
+        print("No runnable FRs (none with status=ready and deps fully merged).")
+        print()
+        _write_wave_synthesis([], started_at, time.monotonic() - wave_start)
+        return 0
+
+    print(f"Runnable FRs for Developer: {[fr['id'] for fr in runnable]}")
+    print()
+
+    results: list[WaveFRResult] = [WaveFRResult(fr_id=fr["id"]) for fr in runnable]
+    results_by_id: dict[str, WaveFRResult] = {r.fr_id: r for r in results}
+
+    # ------------------------------------------------------------------
+    # Phase 1: Dev Tick
+    # ------------------------------------------------------------------
+    print("--- Phase 1: Dev Tick ---")
+
+    dev_spawned: list[tuple[str, str]] = []
+    for fr in runnable:
+        fr_id = fr["id"]
+        state, lock = lock_state(fr_id, "dev")
+        if state == "held":
+            print(f"  {fr_id}  SKIP — Developer lock held (pid={lock['pid']})")
+            r = results_by_id[fr_id]
+            r.dropped_at = "dev-tick"
+            r.drop_reason = "lock already held"
+            continue
+        if state in ("stale", "dead", "corrupt"):
+            print(f"  {fr_id}  SKIP — lock state={state}; run prune first")
+            r = results_by_id[fr_id]
+            r.dropped_at = "dev-tick"
+            r.drop_reason = f"lock state: {state}"
+            continue
+
+        if not apply:
+            wt_preview = REPO_ROOT / ".claude" / "worktrees" / f"dev-{fr_id}"
+            base = _base_branch_for_role(fr_id, "dev")
+            preview = adapter.dry_run_preview(fr_id, "dev", wt_preview)
+            print(f"  {fr_id}  WOULD-SPAWN  {preview}  (base={base})")
+            continue
+
+        result, pid, wt_path = spawn_role(fr_id, "dev", apply=True, adapter=adapter)
+        if result == "spawned":
+            log_file = DISPATCH_DIR / f"{fr_id}.dev.log"
+            print(f"  {fr_id}  SPAWNED      pid={pid}, worktree={wt_path}, log={log_file}")
+            dev_spawned.append((fr_id, "dev"))
+        elif result == "binary-not-found":
+            hint = (
+                "install via `winget install Anthropic.ClaudeCode`"
+                if adapter.name == "claude-code"
+                else "install Cursor + run `cursor-agent login`"
+            )
+            print(f"  {fr_id}  ERROR — `{adapter.binary_name}` not on PATH; {hint}")
+            results_by_id[fr_id].dropped_at = "dev-tick"
+            results_by_id[fr_id].drop_reason = "binary not found"
+        else:
+            print(f"  {fr_id}  ERROR — {result}")
+            results_by_id[fr_id].dropped_at = "dev-tick"
+            results_by_id[fr_id].drop_reason = result
+
+    if not apply:
+        selected = [fr["id"] for fr in runnable if not results_by_id[fr["id"]].dropped_at]
+        print()
+        print(f"--- Dry-run: remaining phases, for these FRs only (rounds={rounds}) ---")
+        for phase in (
+            "Phase 2: Dev Monitor",
+            "Phase 3: Dev Evaluate + Finalize",
+            "Phase 4: Rev Tick",
+            "Phase 5: Rev Monitor",
+            "Phase 6: Rev Evaluate + Finalize",
+        ):
+            print(f"  WOULD-RUN  {phase}  {selected}")
+        # AC-8: name the rework rounds that a request-changes verdict would drive.
+        for extra_round in range(2, rounds + 1):
+            print(
+                f"  WOULD-RUN  Round {extra_round}/{rounds}: Dev rework -> "
+                f"Reviewer re-review  {selected}  "
+                f"(only for FRs whose round {extra_round - 1} verdict is "
+                f"request-changes)"
+            )
+        print()
+        _write_wave_synthesis(results, started_at, time.monotonic() - wave_start)
+        return 0
+
+    if not dev_spawned:
+        print("No Developer agents spawned; nothing to do.")
+        print()
+        _write_wave_synthesis(results, started_at, time.monotonic() - wave_start)
+        return 0
+
+    # ------------------------------------------------------------------
+    # Phase 2: Dev Monitor
+    # ------------------------------------------------------------------
+    print()
+    print(f"--- Phase 2: Dev Monitor ({len(dev_spawned)} agent(s), "
+          f"timeout={_fmt_secs(phase_timeout)}) ---")
+
+    dev_poll_results = _wait_for_phase(dev_spawned, poll_interval, phase_timeout)
+
+    # Check total wave timeout
+    if time.monotonic() - wave_start > timeout:
+        print("Wave total timeout reached; skipping remaining phases.")
+        for fr_id, status in dev_poll_results.items():
+            if status == "timeout":
+                results_by_id[fr_id].dropped_at = "dev-monitor"
+                results_by_id[fr_id].drop_reason = "phase timeout"
+        _write_wave_synthesis(results, started_at, time.monotonic() - wave_start)
+        return 1
+
+    # ------------------------------------------------------------------
+    # Phase 3: Dev Evaluate + Finalize
+    # ------------------------------------------------------------------
+    print()
+    print("--- Phase 3: Dev Evaluate + Finalize ---")
+
+    dev_finalized: list[str] = []
+    for fr_id, poll_status in dev_poll_results.items():
+        r = results_by_id[fr_id]
+
+        if poll_status == "timeout":
+            r.dropped_at = "dev-monitor"
+            r.drop_reason = "phase timeout (agent killed)"
+            print(f"  {fr_id}  DROPPED — timeout")
+            continue
+
+        outcome = _evaluate_agent_outcome(fr_id, "dev", adapter)
+        r.dev_outcome = outcome
+
+        if outcome.status != "success":
+            r.dropped_at = "dev-evaluate"
+            r.drop_reason = outcome.summary
+            print(f"  {fr_id}  DROPPED — {outcome.summary}")
+            continue
+
+        wt_path = REPO_ROOT / ".claude" / "worktrees" / f"dev-{fr_id}"
+        pr_body = wt_path / "PR_BODY.md"
+        if not pr_body.exists():
+            branch = _branch_for(fr_id, "dev")
+            show = subprocess.run(
+                ["git", "-C", str(REPO_ROOT), "show", f"{branch}:PR_BODY.md"],
+                capture_output=True, text=True, timeout=10,
+            )
+            if show.returncode != 0:
+                r.dropped_at = "dev-evaluate"
+                r.drop_reason = "PR_BODY.md not found"
+                print(f"  {fr_id}  DROPPED — PR_BODY.md missing")
+                continue
+
+        rc = cmd_finalize(fr_id, "dev", apply=True, draft=draft, adapter=adapter)
+        if rc != 0:
+            r.dropped_at = "dev-finalize"
+            r.drop_reason = "finalize failed (see output above)"
+            print(f"  {fr_id}  DROPPED — finalize failed")
+            continue
+
+        r.dev_finalize_ok = True
+        pr_record = _load_pr_record(fr_id, "dev")
+        if pr_record:
+            r.pr_number = pr_record.get("pr_number")
+            r.pr_url = pr_record.get("pr_url")
+        dev_finalized.append(fr_id)
+        print(f"  {fr_id}  FINALIZED    PR #{r.pr_number or '?'}")
+
+    if not dev_finalized:
+        print()
+        print("No Developer agents succeeded; skipping Reviewer phase.")
+        _write_wave_synthesis(results, started_at, time.monotonic() - wave_start)
+        return 0
+
+    # Check total wave timeout before rev phase
+    if time.monotonic() - wave_start > timeout:
+        print("Wave total timeout reached; skipping Reviewer phase.")
+        _write_wave_synthesis(results, started_at, time.monotonic() - wave_start)
+        return 0
+
+    # ------------------------------------------------------------------
+    # Phase 4: Rev Tick
+    # ------------------------------------------------------------------
+    print()
+    print("--- Phase 4: Rev Tick ---")
+
+    frs = load_frs()
+    rev_runnable = runnable_review_frs(frs)
+    rev_eligible = [fr for fr in rev_runnable if fr["id"] in dev_finalized]
+
+    if not rev_eligible:
+        print("No FRs eligible for Reviewer (dev branches may need status flip).")
+        print()
+        _write_wave_synthesis(results, started_at, time.monotonic() - wave_start)
+        return 0
+
+    print(f"Eligible FRs for Reviewer: {[fr['id'] for fr in rev_eligible]}")
+
+    rev_spawned: list[tuple[str, str]] = []
+    for fr in rev_eligible:
+        fr_id = fr["id"]
+        state, lock = lock_state(fr_id, "rev")
+        if state == "held":
+            print(f"  {fr_id}  SKIP — Reviewer lock held")
+            continue
+        if state in ("stale", "dead", "corrupt"):
+            print(f"  {fr_id}  SKIP — rev lock state={state}")
+            continue
+
+        result, pid, wt_path = spawn_role(fr_id, "rev", apply=True, adapter=adapter)
+        if result == "spawned":
+            log_file = DISPATCH_DIR / f"{fr_id}.rev.log"
+            print(f"  {fr_id}  SPAWNED      pid={pid}, worktree={wt_path}, log={log_file}")
+            rev_spawned.append((fr_id, "rev"))
+        else:
+            print(f"  {fr_id}  ERROR — {result}")
+
+    if not rev_spawned:
+        print("No Reviewer agents spawned.")
+        print()
+        _write_wave_synthesis(results, started_at, time.monotonic() - wave_start)
+        return 0
+
+    # ------------------------------------------------------------------
+    # Phase 5: Rev Monitor
+    # ------------------------------------------------------------------
+    print()
+    remaining_timeout = timeout - (time.monotonic() - wave_start)
+    effective_phase_timeout = min(phase_timeout, max(remaining_timeout, 0))
+    print(f"--- Phase 5: Rev Monitor ({len(rev_spawned)} agent(s), "
+          f"timeout={_fmt_secs(effective_phase_timeout)}) ---")
+
+    rev_poll_results = _wait_for_phase(rev_spawned, poll_interval, effective_phase_timeout)
+
+    # ------------------------------------------------------------------
+    # Phase 6: Rev Evaluate + Finalize
+    # ------------------------------------------------------------------
+    print()
+    print("--- Phase 6: Rev Evaluate + Finalize ---")
+
+    for fr_id, poll_status in rev_poll_results.items():
+        r = results_by_id.get(fr_id)
+        if r is None:
+            continue
+
+        if poll_status == "timeout":
+            r.dropped_at = "rev-monitor"
+            r.drop_reason = "phase timeout (agent killed)"
+            print(f"  {fr_id}  DROPPED — timeout")
+            continue
+
+        outcome = _evaluate_agent_outcome(fr_id, "rev", adapter)
+        r.rev_outcome = outcome
+
+        if outcome.status != "success":
+            r.dropped_at = "rev-evaluate"
+            r.drop_reason = outcome.summary
+            print(f"  {fr_id}  DROPPED — {outcome.summary}")
+            continue
+
+        rc = cmd_finalize(fr_id, "rev", apply=True, adapter=adapter)
+        if rc != 0:
+            r.dropped_at = "rev-finalize"
+            r.drop_reason = "finalize failed (see output above)"
+            print(f"  {fr_id}  DROPPED — rev finalize failed")
+            continue
+
+        r.rev_finalize_ok = True
+        r.rev_verdict = outcome.verdict
+        r.round_verdicts.append(outcome.verdict)
+        print(f"  {fr_id}  REVIEW-POSTED  verdict={outcome.verdict}")
+
+    # ------------------------------------------------------------------
+    # Rework rounds: re-dispatch Dev->Reviewer on request-changes
+    # ------------------------------------------------------------------
+    if rounds > 1:
+        print()
+        print(f"--- Rework rounds (budget={rounds}) ---")
+        # Resolve each round-1 verdict from the Reviewer's own artifacts
+        # (AC-3/AC-4) before deciding whether to loop, so a request-changes
+        # that had to degrade to the own-PR comment fallback still re-drives.
+        for fr_id, r in results_by_id.items():
+            if not r.rev_finalize_ok or r.dropped_at:
+                continue
+            resolved = _resolve_rework_verdict(fr_id, r.rev_verdict)
+            if resolved != r.rev_verdict:
+                r.rev_verdict = resolved
+                if r.round_verdicts:
+                    r.round_verdicts[-1] = resolved
+        _run_rework_rounds(
+            results_by_id, rounds, draft, adapter, phase_timeout, poll_interval
+        )
+
+    # ------------------------------------------------------------------
+    # Synthesis
+    # ------------------------------------------------------------------
+    _write_wave_synthesis(results, started_at, time.monotonic() - wave_start)
+
+    any_dropped = any(r.dropped_at for r in results)
+    return 1 if any_dropped and not any(r.completed_e2e for r in results) else 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Auto-dispatch Developer waves on FR readiness"
@@ -3363,6 +4363,58 @@ def main() -> int:
         help="(dev only) Open PRs as ready-for-review instead of --draft",
     )
 
+    p_wave = sub.add_parser(
+        "wave",
+        help=(
+            "Autonomous dispatch-to-PR pipeline. Chains: pre-flight -> "
+            "dev tick -> dev monitor -> dev finalize -> rev tick -> rev monitor -> "
+            "rev finalize -> synthesis. Single command, no human intervention in "
+            "the happy path. PRs open as --draft; human reviews and merges."
+        ),
+    )
+    p_wave.add_argument(
+        "--apply",
+        action="store_true",
+        help="Actually spawn agents, push branches, and open PRs (dry-run by default)",
+    )
+    p_wave.add_argument(
+        "--ready",
+        action="store_true",
+        help="Open PRs as ready-for-review instead of --draft",
+    )
+    p_wave.add_argument(
+        "--timeout",
+        type=float,
+        default=7200,
+        help="Total wave timeout in seconds (default: 7200 = 2h)",
+    )
+    p_wave.add_argument(
+        "--phase-timeout",
+        type=float,
+        default=3600,
+        help="Max time per phase (dev wave or rev wave) in seconds (default: 3600 = 1h)",
+    )
+    p_wave.add_argument(
+        "--poll-interval",
+        type=float,
+        default=30,
+        help="Seconds between lock-state polls (default: 30)",
+    )
+    p_wave.add_argument(
+        "--rounds",
+        type=int,
+        default=1,
+        help=(
+            "Max Dev<->Reviewer cycles per FR (default: 1, today's single-pass "
+            f"behaviour). Capped at the {REVIEW_CYCLE_BUDGET}-cycle budget from "
+            "CLAUDE.md; a higher value exits non-zero. When the reviewer requests "
+            "changes and rounds remain, the Developer is re-dispatched with a "
+            "generated rework brief."
+        ),
+    )
+    add_fr_selector(p_wave)
+    add_harness(p_wave)
+
     args = parser.parse_args()
     if args.cmd == "tick":
         adapter = get_adapter(args.harness)
@@ -3391,6 +4443,18 @@ def main() -> int:
     if args.cmd == "backfill":
         adapter = get_adapter(args.harness)
         return cmd_backfill(args.fr_id, apply=args.apply, adapter=adapter)
+    if args.cmd == "wave":
+        adapter = get_adapter(args.harness)
+        return cmd_wave(
+            apply=args.apply,
+            adapter=adapter,
+            draft=not args.ready,
+            timeout=args.timeout,
+            phase_timeout=args.phase_timeout,
+            poll_interval=args.poll_interval,
+            fr_filter=parse_fr_selector(args.fr),
+            rounds=args.rounds,
+        )
     parser.print_help()
     return 0
 
