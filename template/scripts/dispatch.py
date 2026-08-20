@@ -137,6 +137,35 @@ SLASH_COMMAND_NAMES = {
     "mnt": "maintainer",
 }
 
+# Role -> Claude Code --model alias. The Reviewer and its backfill variant run
+# on the stronger model (adversarial coverage review benefits most from it);
+# the implementation roles (dev, mnt) run on the faster model. Override per
+# role with env DISPATCH_MODEL_<ROLE> (e.g. DISPATCH_MODEL_DEV=opus). A role
+# absent from this map and unset in the env gets no --model flag, so the
+# harness default applies. Only the Claude Code adapter consumes this; Cursor
+# selects models through its own config.
+ROLE_MODEL: dict[str, str] = {
+    "dev": "sonnet",
+    "rev": "opus",
+    "bkf": "opus",
+    "mnt": "sonnet",
+}
+
+
+def _resolve_model(role: str) -> str | None:
+    """Resolve the Claude Code --model alias for a role.
+
+    Env override DISPATCH_MODEL_<ROLE> (role uppercased) wins; otherwise
+    ROLE_MODEL supplies the default. Returns None when neither is set, in
+    which case the caller passes no --model flag and the harness default
+    applies.
+    """
+    override = os.environ.get(f"DISPATCH_MODEL_{role.upper()}")
+    if override and override.strip():
+        return override.strip()
+    return ROLE_MODEL.get(role)
+
+
 DEFAULT_HARNESS = os.environ.get("DISPATCH_HARNESS", "claude-code")
 
 # Worktree venv configuration. Override via environment variables or edit
@@ -641,6 +670,9 @@ class ClaudeCodeAdapter:
             "stream-json",
             "--verbose",
         ]
+        model = _resolve_model(role)
+        if model:
+            cmd += ["--model", model]
         log_fh = log_path.open("wb")
         try:
             proc = subprocess.Popen(
@@ -658,9 +690,11 @@ class ClaudeCodeAdapter:
 
     def dry_run_preview(self, fr_id: str, role: str, wt_preview: Path) -> str:
         slash = SLASH_COMMAND_NAMES.get(role, role)
+        model = _resolve_model(role)
+        model_note = f"; model={model}" if model else ""
         return (
             f"claude -p '/{slash} {fr_id}'  "
-            f"(cwd={wt_preview}; perms via .claude/settings.local.json)"
+            f"(cwd={wt_preview}; perms via .claude/settings.local.json{model_note})"
         )
 
     def parse_log(self, log_path: Path) -> AgentLogSummary:
