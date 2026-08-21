@@ -37,6 +37,11 @@ except ImportError:
     print("ERROR: pyyaml not installed. Run: pip install pyyaml", file=sys.stderr)
     sys.exit(2)
 
+# _console is a sibling module providing encoding-safe console output; pattern
+# names routinely contain dashes and quotes a Windows console cannot encode,
+# and `show` echoes a whole PATTERN file verbatim.
+from _console import configure_stdio, safe_print
+
 
 HUB_ROOT = Path(__file__).resolve().parent.parent
 PATTERNS_DIR = HUB_ROOT / "patterns"
@@ -133,7 +138,7 @@ def next_id() -> str:
 def cmd_propose(args: argparse.Namespace) -> int:
     name = args.name.strip()
     if not name:
-        print("ERROR: name is required", file=sys.stderr)
+        safe_print("ERROR: name is required", file=sys.stderr)
         return 1
 
     tags = [t.strip() for t in (args.tags or "").split(",") if t.strip()]
@@ -185,7 +190,7 @@ def cmd_propose(args: argparse.Namespace) -> int:
     fm = yaml.safe_dump(meta, sort_keys=False, allow_unicode=True).rstrip()
     text = f"---\n{fm}\n---\n" + "\n".join(body_parts)
     path.write_text(text, encoding="utf-8")
-    print(f"Created {path.relative_to(HUB_ROOT)}")
+    safe_print(f"Created {path.relative_to(HUB_ROOT)}")
     reindex()
     return 0
 
@@ -195,31 +200,31 @@ def cmd_list(args: argparse.Namespace) -> int:
     if args.status:
         patterns = [p for p in patterns if p.status == args.status]
     if not patterns:
-        print("(no patterns match)")
+        safe_print("(no patterns match)")
         return 0
-    print(f"{'ID':<14} {'Status':<10} {'Tags':<24} Name")
-    print("-" * 80)
+    safe_print(f"{'ID':<14} {'Status':<10} {'Tags':<24} Name")
+    safe_print("-" * 80)
     for p in sorted(patterns, key=lambda x: x.id):
         tags = ",".join(p.tags) if p.tags else "-"
-        print(f"{p.id:<14} {p.status:<10} {tags:<24} {p.name}")
+        safe_print(f"{p.id:<14} {p.status:<10} {tags:<24} {p.name}")
     return 0
 
 
 def cmd_show(args: argparse.Namespace) -> int:
     p = load_pattern(args.pattern_id)
-    print(p.path.read_text(encoding="utf-8"))
+    safe_print(p.path.read_text(encoding="utf-8"))
     return 0
 
 
 def cmd_accept(args: argparse.Namespace) -> int:
     p = load_pattern(args.pattern_id)
     if p.status not in {"proposed", "rejected"}:
-        print(f"ERROR: {p.id} is '{p.status}', cannot accept", file=sys.stderr)
+        safe_print(f"ERROR: {p.id} is '{p.status}', cannot accept", file=sys.stderr)
         return 1
     p.meta["status"] = "accepted"
     p.meta["rejection_reason"] = None
     write_pattern(p)
-    print(f"{p.id} accepted")
+    safe_print(f"{p.id} accepted")
     reindex()
     return 0
 
@@ -229,7 +234,7 @@ def cmd_reject(args: argparse.Namespace) -> int:
     p.meta["status"] = "rejected"
     p.meta["rejection_reason"] = args.reason
     write_pattern(p)
-    print(f"{p.id} rejected: {args.reason}")
+    safe_print(f"{p.id} rejected: {args.reason}")
     reindex()
     return 0
 
@@ -239,7 +244,7 @@ def cmd_mark_built(args: argparse.Namespace) -> int:
     p.meta["status"] = "built"
     p.meta["built_as"] = args.as_project
     write_pattern(p)
-    print(f"{p.id} marked built as {args.as_project}")
+    safe_print(f"{p.id} marked built as {args.as_project}")
     reindex()
     return 0
 
@@ -274,11 +279,13 @@ def reindex() -> None:
 
 def cmd_reindex(_: argparse.Namespace) -> int:
     reindex()
-    print(f"Wrote {INDEX_PATH.relative_to(HUB_ROOT)} and {HUB_INDEX_PATH.relative_to(HUB_ROOT)}")
+    safe_print(f"Wrote {INDEX_PATH.relative_to(HUB_ROOT)} and {HUB_INDEX_PATH.relative_to(HUB_ROOT)}")
     return 0
 
 
 def main() -> int:
+    configure_stdio()
+
     parser = argparse.ArgumentParser(description="Pattern catalog CRUD")
     sub = parser.add_subparsers(dest="cmd", required=True)
 

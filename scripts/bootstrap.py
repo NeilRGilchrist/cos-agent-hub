@@ -36,6 +36,12 @@ import sys
 import textwrap
 from pathlib import Path
 
+# _console is a sibling module providing encoding-safe console output. Windows
+# consoles cannot represent the arrows and dashes in this script's progress
+# messages, and an unhandled UnicodeEncodeError here aborts bootstrap partway
+# through, leaving a half-created project directory behind.
+from _console import configure_stdio, safe_print
+
 SLUG_RE = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
 
 HUB_ROOT = Path(__file__).resolve().parent.parent
@@ -106,16 +112,16 @@ COMMAND_META = {
 # ---------------------------------------------------------------------------
 
 def die(msg: str) -> None:
-    print(f"ERROR: {msg}", file=sys.stderr)
+    safe_print(f"ERROR: {msg}", file=sys.stderr)
     sys.exit(1)
 
 
 def warn(msg: str) -> None:
-    print(f"WARN: {msg}", file=sys.stderr)
+    safe_print(f"WARN: {msg}", file=sys.stderr)
 
 
 def info(msg: str) -> None:
-    print(f"-> {msg}")
+    safe_print(f"-> {msg}")
 
 
 def validate_slug(name: str) -> None:
@@ -127,13 +133,57 @@ def validate_slug(name: str) -> None:
         )
 
 
+def _probe_python(path: str) -> tuple[bool, bool]:
+    """Return (is_python_311_plus, has_pyyaml) for the interpreter at `path`.
+
+    The candidate is validated by running it rather than by trusting its name.
+    On Windows `shutil.which("python3")` resolves to the Microsoft Store App
+    Execution Alias stub under AppData/Local/Microsoft/WindowsApps, which is not
+    an interpreter at all -- it prints an install advert and exits 49.
+    """
+    def ok(code: str) -> bool:
+        try:
+            completed = subprocess.run(
+                [path, "-c", code], capture_output=True, timeout=30
+            )
+        except (OSError, subprocess.SubprocessError):
+            return False
+        return completed.returncode == 0
+
+    if not ok("import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)"):
+        return (False, False)
+    return (True, ok("import yaml"))
+
+
 def find_python() -> str:
-    """Return the path to a Python 3 interpreter, or die trying."""
-    for candidate in ("python3", "python"):
-        path = shutil.which(candidate)
-        if path:
-            return path
-    die("python is required (for the spec indexer)")
+    """Return the path to a working Python 3.11+ interpreter, or die trying.
+
+    `sys.executable` is preferred: the interpreter already running bootstrap has
+    provably imported everything bootstrap needs. The PATH probe is only a
+    fallback, and every candidate is validated so a stub can never win. An
+    interpreter that has pyyaml beats one that does not, but a bare Python 3 is
+    still returned so `check_pyyaml` can emit its actionable install hint
+    instead of a misleading "python is required".
+    """
+    candidates: list[str] = []
+    if sys.executable:
+        candidates.append(sys.executable)
+    for name in ("python3", "python"):
+        path = shutil.which(name)
+        if path and path not in candidates:
+            candidates.append(path)
+
+    fallback = ""
+    for candidate in candidates:
+        is_py3, has_yaml = _probe_python(candidate)
+        if is_py3 and has_yaml:
+            return candidate
+        if is_py3 and not fallback:
+            fallback = candidate
+
+    if fallback:
+        return fallback
+    die("python 3.11+ is required (for the spec indexer)")
     return ""  # unreachable
 
 
@@ -393,7 +443,7 @@ def apply_profiles(target: Path, profile_names: list[str]) -> None:
                 warn(f"  Profile '{name}' has no apply logic yet — skipped")
 
     if profile_names:
-        print(f"\n  Profiles applied: {', '.join(profile_names)}")
+        safe_print(f"\n  Profiles applied: {', '.join(profile_names)}")
 
 
 def _merge_json(base: dict, overlay: dict) -> dict:
@@ -557,10 +607,10 @@ def run_upgrade(project_path: Path, auto_yes: bool) -> None:
                 project_file.parent.mkdir(parents=True, exist_ok=True)
                 project_file.write_text(template_content, encoding="utf-8")
                 added.append(rel_path)
-                print(f"  + {rel_path} (new file)")
+                safe_print(f"  + {rel_path} (new file)")
             else:
-                print(f"\n  NEW: {rel_path}")
-                print("  This file exists in the template but not in your project.")
+                safe_print(f"\n  NEW: {rel_path}")
+                safe_print("  This file exists in the template but not in your project.")
                 answer = input("  Add it? [y/N] ").strip().lower()
                 if answer == "y":
                     project_file.parent.mkdir(parents=True, exist_ok=True)
@@ -581,13 +631,13 @@ def run_upgrade(project_path: Path, auto_yes: bool) -> None:
         if auto_yes:
             project_file.write_text(template_content, encoding="utf-8")
             updated.append(rel_path)
-            print(f"  ~ {rel_path} (updated)")
+            safe_print(f"  ~ {rel_path} (updated)")
         else:
-            print(f"\n  CHANGED: {rel_path}")
-            print("  " + "-" * 60)
+            safe_print(f"\n  CHANGED: {rel_path}")
+            safe_print("  " + "-" * 60)
             for line in diff_text.splitlines():
-                print(f"  {line}")
-            print("  " + "-" * 60)
+                safe_print(f"  {line}")
+            safe_print("  " + "-" * 60)
             answer = input("  Apply this change? [y/N] ").strip().lower()
             if answer == "y":
                 project_file.write_text(template_content, encoding="utf-8")
@@ -598,28 +648,28 @@ def run_upgrade(project_path: Path, auto_yes: bool) -> None:
     # Regenerate commands from .agent-team/commands/ sources
     info("Regenerating commands from .agent-team/commands/ sources")
     cmd_count = generate_commands(project)
-    print(f"  Generated {cmd_count} command(s) for .claude/ and .cursor/")
+    safe_print(f"  Generated {cmd_count} command(s) for .claude/ and .cursor/")
 
     # Summary
-    print("\n" + "=" * 60)
-    print("Upgrade summary:")
+    safe_print("\n" + "=" * 60)
+    safe_print("Upgrade summary:")
     if updated:
-        print(f"  Updated:  {len(updated)} file(s)")
+        safe_print(f"  Updated:  {len(updated)} file(s)")
         for f in updated:
-            print(f"    ~ {f}")
+            safe_print(f"    ~ {f}")
     if added:
-        print(f"  Added:    {len(added)} file(s)")
+        safe_print(f"  Added:    {len(added)} file(s)")
         for f in added:
-            print(f"    + {f}")
+            safe_print(f"    + {f}")
     if skipped:
-        print(f"  Skipped:  {len(skipped)} file(s)")
+        safe_print(f"  Skipped:  {len(skipped)} file(s)")
         for f in skipped:
-            print(f"    - {f}")
+            safe_print(f"    - {f}")
     if not updated and not added:
-        print("  Everything is already up to date.")
+        safe_print("  Everything is already up to date.")
     if cmd_count:
-        print(f"  Commands: {cmd_count} regenerated")
-    print("=" * 60)
+        safe_print(f"  Commands: {cmd_count} regenerated")
+    safe_print("=" * 60)
 
 
 # ---------------------------------------------------------------------------
@@ -682,7 +732,7 @@ def run_create(args: argparse.Namespace) -> None:
     # Generate commands
     info("Generating .claude/commands/ and .cursor/commands/ from .agent-team/commands/")
     cmd_count = generate_commands(target)
-    print(f"  Generated {cmd_count} command(s) for .claude/ and .cursor/", file=sys.stderr)
+    safe_print(f"  Generated {cmd_count} command(s) for .claude/ and .cursor/", file=sys.stderr)
 
     # Create dispatch directory
     info("Creating _dispatch/ directory")
@@ -722,7 +772,7 @@ def run_create(args: argparse.Namespace) -> None:
     conventions_note = ""
     if stack == "none":
         conventions_note = "\n       - <<REPLACE: PROJECT_CONVENTIONS>>"
-    print(f"""
+    safe_print(f"""
 \u2705 Project ready at: {target}
 
 Next steps:
@@ -833,6 +883,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    configure_stdio()
+
     parser = build_parser()
     args = parser.parse_args()
 

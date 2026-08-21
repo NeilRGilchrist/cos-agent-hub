@@ -36,6 +36,10 @@ except ImportError:
     print("ERROR: pyyaml not installed. Run: pip install pyyaml", file=sys.stderr)
     sys.exit(2)
 
+# _console is a sibling module providing encoding-safe console output; FR titles
+# routinely contain dashes and arrows that a Windows console cannot encode.
+from _console import configure_stdio, safe_print
+
 
 HUB_ROOT = Path(__file__).resolve().parent.parent
 PROJECTS_YAML = HUB_ROOT / "hub" / "projects.yaml"
@@ -168,6 +172,8 @@ def _file_mtime_iso(path: Path) -> str:
 
 
 def main() -> int:
+    configure_stdio()
+
     parser = argparse.ArgumentParser(description="Cross-project FR indexer")
     parser.add_argument("--check", action="store_true", help="validate without writing")
     parser.add_argument(
@@ -199,7 +205,7 @@ def main() -> int:
     projects, errors = collect_projects()
     if errors:
         for e in errors:
-            print(f"ERROR: {e}", file=sys.stderr)
+            safe_print(f"ERROR: {e}", file=sys.stderr)
         return 1
 
     out_projects: list[dict] = []
@@ -210,12 +216,12 @@ def main() -> int:
         name = entry.get("name", "?")
         project_path = resolve_project_path(entry)
         if not project_path.exists():
-            print(f"WARN: project '{name}' path does not exist: {project_path}", file=sys.stderr)
+            safe_print(f"WARN: project '{name}' path does not exist: {project_path}", file=sys.stderr)
             out_projects.append({**entry, "exists": False, "fr_count": 0})
             continue
         specs_dir = project_path / "specs"
         if not specs_dir.exists():
-            print(f"WARN: project '{name}' has no specs/ directory", file=sys.stderr)
+            safe_print(f"WARN: project '{name}' has no specs/ directory", file=sys.stderr)
             out_projects.append({**entry, "exists": True, "fr_count": 0})
             continue
 
@@ -300,7 +306,7 @@ def main() -> int:
     }
 
     if args.check:
-        print(f"Hub index check OK: {len(out_projects)} projects, {len(out_frs)} FRs")
+        safe_print(f"Hub index check OK: {len(out_projects)} projects, {len(out_frs)} FRs")
         return 0
 
     INDEX_JSON.parent.mkdir(parents=True, exist_ok=True)
@@ -311,7 +317,7 @@ def main() -> int:
     ]
     if skipped_unchanged:
         parts.append(f" ({skipped_unchanged} unchanged, reused from cache)")
-    print("".join(parts))
+    safe_print("".join(parts))
     return 0
 
 
