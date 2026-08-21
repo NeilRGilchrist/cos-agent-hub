@@ -487,9 +487,13 @@ def register_project(
     else:
         try:
             rel = target.resolve().relative_to(hub_root.resolve())
-            path_field = str(rel)
+            # The registry is read on every platform, so always emit POSIX
+            # separators. str() on a Windows Path yields `projects\foo`, which
+            # contradicts every pre-existing entry and cannot be resolved from a
+            # POSIX checkout of the same repo.
+            path_field = rel.as_posix()
         except ValueError:
-            path_field = str(target.resolve())
+            path_field = target.resolve().as_posix()
 
         projects.append({
             "name": project_name,

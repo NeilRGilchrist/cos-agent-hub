@@ -83,7 +83,14 @@ def parse_fr_file(path: Path, project_name: str) -> dict | None:
         "pattern": meta.get("pattern"),
         "created": str(meta.get("created", "")),
         "updated": str(meta.get("updated", "")),
-        "rel_path": str(path.relative_to(HUB_ROOT)) if path.is_relative_to(HUB_ROOT) else str(path),
+        # POSIX separators: FR-INDEX.json is committed and read on every
+        # platform, and `git_tracked_specs` below already normalizes the same
+        # way. str() on a Windows Path would write `projects\foo\specs\...`.
+        "rel_path": (
+            path.relative_to(HUB_ROOT).as_posix()
+            if path.is_relative_to(HUB_ROOT)
+            else path.as_posix()
+        ),
     }
 
 
