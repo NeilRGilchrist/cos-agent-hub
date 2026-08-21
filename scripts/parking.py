@@ -38,6 +38,11 @@ except ImportError:
     print("ERROR: pyyaml not installed. Run: pip install pyyaml", file=sys.stderr)
     sys.exit(2)
 
+# _console is a sibling module providing encoding-safe console output; idea
+# titles routinely contain dashes and quotes a Windows console cannot encode,
+# and `show` echoes a whole IDEA file verbatim.
+from _console import configure_stdio, safe_print
+
 
 HUB_ROOT = Path(__file__).resolve().parent.parent
 PARKING_DIR = HUB_ROOT / "parking-lot"
@@ -135,13 +140,13 @@ def next_id() -> str:
 def cmd_add(args: argparse.Namespace) -> int:
     title = args.title.strip()
     if not title:
-        print("ERROR: title is required", file=sys.stderr)
+        safe_print("ERROR: title is required", file=sys.stderr)
         return 1
 
     tags = [t.strip() for t in (args.tags or "").split(",") if t.strip()]
     size = (args.size or "M").upper()
     if size not in VALID_SIZES:
-        print(f"ERROR: --size must be one of {sorted(VALID_SIZES)}", file=sys.stderr)
+        safe_print(f"ERROR: --size must be one of {sorted(VALID_SIZES)}", file=sys.stderr)
         return 1
 
     idea_id = next_id()
@@ -177,7 +182,7 @@ def cmd_add(args: argparse.Namespace) -> int:
     fm = yaml.safe_dump(meta, sort_keys=False, allow_unicode=True).rstrip()
     text = f"---\n{fm}\n---\n" + "\n".join(body_parts)
     path.write_text(text, encoding="utf-8")
-    print(f"Created {path.relative_to(HUB_ROOT)}")
+    safe_print(f"Created {path.relative_to(HUB_ROOT)}")
     reindex()
     return 0
 
@@ -189,25 +194,25 @@ def cmd_list(args: argparse.Namespace) -> int:
     if args.tag:
         ideas = [i for i in ideas if args.tag in i.tags]
     if not ideas:
-        print("(no ideas match)")
+        safe_print("(no ideas match)")
         return 0
-    print(f"{'ID':<10} {'Status':<22} {'Size':<5} Title")
-    print("-" * 80)
+    safe_print(f"{'ID':<10} {'Status':<22} {'Size':<5} Title")
+    safe_print("-" * 80)
     for i in sorted(ideas, key=lambda x: x.id):
-        print(f"{i.id:<10} {i.status:<22} {i.size:<5} {i.title}")
+        safe_print(f"{i.id:<10} {i.status:<22} {i.size:<5} {i.title}")
     return 0
 
 
 def cmd_show(args: argparse.Namespace) -> int:
     idea = load_idea(args.idea_id)
-    print(idea.path.read_text(encoding="utf-8"))
+    safe_print(idea.path.read_text(encoding="utf-8"))
     return 0
 
 
 def cmd_promote(args: argparse.Namespace) -> int:
     idea = load_idea(args.idea_id)
     if idea.status != "parked":
-        print(f"WARN: {idea.id} is currently '{idea.status}', not 'parked' -- proceeding anyway", file=sys.stderr)
+        safe_print(f"WARN: {idea.id} is currently '{idea.status}', not 'parked' -- proceeding anyway", file=sys.stderr)
 
     if args.to_fr:
         idea.meta["promoted_to"] = args.to_fr
@@ -216,12 +221,12 @@ def cmd_promote(args: argparse.Namespace) -> int:
         idea.meta["promoted_to"] = f"{args.to_project}/(new project)"
         idea.meta["status"] = "promoted"
     else:
-        print("ERROR: --to-fr or --to-project is required", file=sys.stderr)
+        safe_print("ERROR: --to-fr or --to-project is required", file=sys.stderr)
         return 1
 
     idea.meta["last_reviewed"] = today()
     write_idea(idea)
-    print(f"Marked {idea.id} as promoted -> {idea.meta['promoted_to']}")
+    safe_print(f"Marked {idea.id} as promoted -> {idea.meta['promoted_to']}")
     reindex()
     return 0
 
@@ -229,13 +234,13 @@ def cmd_promote(args: argparse.Namespace) -> int:
 def cmd_merge(args: argparse.Namespace) -> int:
     idea = load_idea(args.idea_id)
     if not args.into.startswith("PATTERN-"):
-        print("ERROR: --into must be PATTERN-NNNN", file=sys.stderr)
+        safe_print("ERROR: --into must be PATTERN-NNNN", file=sys.stderr)
         return 1
     idea.meta["pattern"] = args.into
     idea.meta["status"] = "merged-into-pattern"
     idea.meta["last_reviewed"] = today()
     write_idea(idea)
-    print(f"Marked {idea.id} as merged into {args.into}")
+    safe_print(f"Marked {idea.id} as merged into {args.into}")
     reindex()
     return 0
 
@@ -246,7 +251,7 @@ def cmd_archive(args: argparse.Namespace) -> int:
     idea.meta["archive_reason"] = args.reason
     idea.meta["last_reviewed"] = today()
     write_idea(idea)
-    print(f"Archived {idea.id}: {args.reason}")
+    safe_print(f"Archived {idea.id}: {args.reason}")
     reindex()
     return 0
 
@@ -266,15 +271,15 @@ def cmd_reflect(args: argparse.Namespace) -> int:
             stale.append(idea)
 
     if not stale:
-        print(f"No parked ideas are older than {args.days} days. Nothing to reflect on.")
+        safe_print(f"No parked ideas are older than {args.days} days. Nothing to reflect on.")
         return 0
 
-    print(f"Parked ideas not reviewed in {args.days}+ days ({len(stale)}):")
+    safe_print(f"Parked ideas not reviewed in {args.days}+ days ({len(stale)}):")
     for idea in stale:
-        print(f"  {idea.id}  last_reviewed={idea.meta.get('last_reviewed', '?')}  {idea.title}")
-    print("\nFor each: re-validate, archive (with reason), or promote. Then run:")
-    print("  python scripts/parking.py archive IDEA-NNNN --reason '...'  # or")
-    print("  /promote IDEA-NNNN")
+        safe_print(f"  {idea.id}  last_reviewed={idea.meta.get('last_reviewed', '?')}  {idea.title}")
+    safe_print("\nFor each: re-validate, archive (with reason), or promote. Then run:")
+    safe_print("  python scripts/parking.py archive IDEA-NNNN --reason '...'  # or")
+    safe_print("  /promote IDEA-NNNN")
     return 0
 
 
@@ -303,11 +308,13 @@ def reindex() -> None:
 
 def cmd_reindex(_: argparse.Namespace) -> int:
     reindex()
-    print(f"Wrote {INDEX_PATH.relative_to(HUB_ROOT)}")
+    safe_print(f"Wrote {INDEX_PATH.relative_to(HUB_ROOT)}")
     return 0
 
 
 def main() -> int:
+    configure_stdio()
+
     parser = argparse.ArgumentParser(description="Parking-lot CRUD")
     sub = parser.add_subparsers(dest="cmd", required=True)
 

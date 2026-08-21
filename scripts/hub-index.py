@@ -13,11 +13,18 @@ By default, .claude/worktrees/ directories are skipped to prevent unbounded
 index growth from ephemeral worktrees. Pass --include-worktrees to restore
 the old behavior and index worktree specs as well.
 
+A partial checkout -- a git worktree, or CI where a gitlink is never populated
+-- sees registered projects as empty directories, so a rebuild there would
+silently gut the index. The indexer therefore refuses to write (and fails
+--check) when the rebuild would lose FRs relative to the existing index. Pass
+--allow-shrink when the loss is intended: deleted FRs, or an archived project.
+
 Usage:
   python3 scripts/hub-index.py                       # rebuild (main branches only)
   python3 scripts/hub-index.py --include-worktrees    # include .claude/worktrees/*
   python3 scripts/hub-index.py --check                # validate without writing
   python3 scripts/hub-index.py --incremental           # only re-parse changed files
+  python3 scripts/hub-index.py --allow-shrink          # permit an index that loses FRs
 """
 
 from __future__ import annotations
@@ -35,6 +42,10 @@ try:
 except ImportError:
     print("ERROR: pyyaml not installed. Run: pip install pyyaml", file=sys.stderr)
     sys.exit(2)
+
+# _console is a sibling module providing encoding-safe console output; FR titles
+# routinely contain dashes and arrows that a Windows console cannot encode.
+from _console import configure_stdio, safe_print
 
 
 HUB_ROOT = Path(__file__).resolve().parent.parent
@@ -79,7 +90,14 @@ def parse_fr_file(path: Path, project_name: str) -> dict | None:
         "pattern": meta.get("pattern"),
         "created": str(meta.get("created", "")),
         "updated": str(meta.get("updated", "")),
-        "rel_path": str(path.relative_to(HUB_ROOT)) if path.is_relative_to(HUB_ROOT) else str(path),
+        # POSIX separators: FR-INDEX.json is committed and read on every
+        # platform, and `git_tracked_specs` below already normalizes the same
+        # way. str() on a Windows Path would write `projects\foo\specs\...`.
+        "rel_path": (
+            path.relative_to(HUB_ROOT).as_posix()
+            if path.is_relative_to(HUB_ROOT)
+            else path.as_posix()
+        ),
     }
 
 
@@ -161,6 +179,69 @@ def _load_existing_index() -> dict | None:
         return None
 
 
+def _is_empty_dir(path: Path) -> bool:
+    """True if the path is a directory containing no entries at all.
+
+    A registered project path that exists but is completely empty means a
+    partial checkout, not a project without specs: git materializes a gitlink
+    it cannot resolve (and a worktree's un-checked-out nested repo) as a bare
+    empty directory.
+    """
+    if not path.is_dir():
+        return False
+    try:
+        next(path.iterdir())
+    except StopIteration:
+        return True
+    except OSError:
+        return False
+    return False
+
+
+def _fr_counts_by_project(frs: list[dict]) -> dict[str, int]:
+    """Tally FR records per project name."""
+    counts: dict[str, int] = {}
+    for rec in frs:
+        key = str(rec.get("project", ""))
+        counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+def detect_index_loss(
+    existing_index: dict | None,
+    out_projects: list[dict],
+    out_frs: list[dict],
+) -> tuple[list[str], int, int]:
+    """Compare the rebuilt index against the existing one for lost FR data.
+
+    Returns (losses, old_total, new_total). An empty losses list means the new
+    index is safe to write. Projects now marked private are excluded from the
+    comparison: dropping to zero indexed FRs is legitimate for those.
+    """
+    if not existing_index:
+        return [], 0, 0
+    old_counts = _fr_counts_by_project(existing_index.get("frs") or [])
+    if not old_counts:
+        return [], 0, 0
+    new_counts = _fr_counts_by_project(out_frs)
+    private_now = {
+        str(rec.get("name", "")) for rec in out_projects if rec.get("private", False)
+    }
+
+    losses: list[str] = []
+    for project in sorted(old_counts):
+        if project in private_now:
+            continue
+        old_n = old_counts[project]
+        new_n = new_counts.get(project, 0)
+        if new_n < old_n:
+            losses.append(f"{project}: {old_n} -> {new_n} FRs")
+
+    old_total = sum(n for proj, n in old_counts.items() if proj not in private_now)
+    new_total = sum(n for proj, n in new_counts.items() if proj not in private_now)
+    return losses, old_total, new_total
+
+
 def _file_mtime_iso(path: Path) -> str:
     """Return the file modification time as an ISO string (UTC)."""
     ts = path.stat().st_mtime
@@ -168,6 +249,8 @@ def _file_mtime_iso(path: Path) -> str:
 
 
 def main() -> int:
+    configure_stdio()
+
     parser = argparse.ArgumentParser(description="Cross-project FR indexer")
     parser.add_argument("--check", action="store_true", help="validate without writing")
     parser.add_argument(
@@ -185,10 +268,17 @@ def main() -> int:
         action="store_true",
         help="force full rebuild (overrides --incremental)",
     )
+    parser.add_argument(
+        "--allow-shrink",
+        action="store_true",
+        help="permit an index that loses FRs (deleted FRs, archived project)",
+    )
     args = parser.parse_args()
 
     incremental = args.incremental and not args.force
-    existing_index = _load_existing_index() if incremental else None
+    # Loaded unconditionally: this is the baseline for the FR-loss guard below,
+    # not just the cache for --incremental.
+    existing_index = _load_existing_index()
     if incremental and existing_index is None:
         incremental = False
 
@@ -199,7 +289,7 @@ def main() -> int:
     projects, errors = collect_projects()
     if errors:
         for e in errors:
-            print(f"ERROR: {e}", file=sys.stderr)
+            safe_print(f"ERROR: {e}", file=sys.stderr)
         return 1
 
     out_projects: list[dict] = []
@@ -210,12 +300,24 @@ def main() -> int:
         name = entry.get("name", "?")
         project_path = resolve_project_path(entry)
         if not project_path.exists():
-            print(f"WARN: project '{name}' path does not exist: {project_path}", file=sys.stderr)
+            safe_print(f"WARN: project '{name}' path does not exist: {project_path}", file=sys.stderr)
             out_projects.append({**entry, "exists": False, "fr_count": 0})
+            continue
+        if _is_empty_dir(project_path):
+            safe_print(
+                f"PARTIAL CHECKOUT: project '{name}' is an empty directory: "
+                f"{project_path}\n"
+                f"  This is an un-populated checkout, not a project without specs. "
+                f"Rebuild from the primary hub checkout, not a git worktree or CI.",
+                file=sys.stderr,
+            )
+            out_projects.append(
+                {**entry, "exists": True, "fr_count": 0, "partial_checkout": True}
+            )
             continue
         specs_dir = project_path / "specs"
         if not specs_dir.exists():
-            print(f"WARN: project '{name}' has no specs/ directory", file=sys.stderr)
+            safe_print(f"WARN: project '{name}' has no specs/ directory", file=sys.stderr)
             out_projects.append({**entry, "exists": True, "fr_count": 0})
             continue
 
@@ -299,8 +401,29 @@ def main() -> int:
         "frs": out_frs,
     }
 
+    if not args.allow_shrink:
+        losses, old_total, new_total = detect_index_loss(
+            existing_index, out_projects, out_frs
+        )
+        if losses:
+            action = "check failed for" if args.check else "refusing to write"
+            safe_print(
+                f"ERROR: {action} {INDEX_JSON.relative_to(HUB_ROOT)}: the rebuild "
+                f"would lose FR data ({old_total} -> {new_total} FRs)",
+                file=sys.stderr,
+            )
+            for loss in losses:
+                safe_print(f"  {loss}", file=sys.stderr)
+            safe_print(
+                "  Most likely a partial checkout: rebuild from the primary hub "
+                "checkout, not a git worktree or CI. Pass --allow-shrink if the "
+                "loss is intended (deleted FRs, archived project).",
+                file=sys.stderr,
+            )
+            return 1
+
     if args.check:
-        print(f"Hub index check OK: {len(out_projects)} projects, {len(out_frs)} FRs")
+        safe_print(f"Hub index check OK: {len(out_projects)} projects, {len(out_frs)} FRs")
         return 0
 
     INDEX_JSON.parent.mkdir(parents=True, exist_ok=True)
@@ -311,7 +434,7 @@ def main() -> int:
     ]
     if skipped_unchanged:
         parts.append(f" ({skipped_unchanged} unchanged, reused from cache)")
-    print("".join(parts))
+    safe_print("".join(parts))
     return 0
 
 

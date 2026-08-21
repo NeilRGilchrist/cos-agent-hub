@@ -11,10 +11,13 @@ _dispatch/
 # `gh pr create --body-file`. It must not be committed.
 PR_BODY.md
 
-# Python bytecode and tool caches. The team scripts under scripts/ are always
-# Python and are exercised by tests/unit/scripts/, so these appear in every
-# project regardless of the project's own stack.
+# Python build/test caches. `bootstrap.py` runs scripts/index-specs.py during
+# project creation, which imports spec_footprint and leaves a __pycache__
+# behind before the initial commit.
 __pycache__/
-*.pyc
+*.py[cod]
 .pytest_cache/
 .ruff_cache/
+.mypy_cache/
+.venv/
+*.egg-info/
