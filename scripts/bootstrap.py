@@ -56,6 +56,15 @@ INFRA_DIRS = [
     ".cursor/rules",
 ]
 
+# Root-level infrastructure files that --upgrade syncs. INFRA_DIRS only walks
+# subdirectories, so root files need naming here explicitly. This is an
+# allowlist rather than "every root file not in UPGRADE_EXCLUDE" on purpose:
+# requirements.txt is project-owned (projects append their own dependencies to
+# it) and an upgrade must not clobber it.
+INFRA_ROOT_FILES = [
+    "pytest.ini",
+]
+
 # Files/dirs that --upgrade must never touch.
 UPGRADE_EXCLUDE = {
     "specs",
@@ -105,6 +114,24 @@ COMMAND_META = {
 # Helpers
 # ---------------------------------------------------------------------------
 
+def _configure_stdio() -> None:
+    """Best-effort: reconfigure stdout/stderr to UTF-8.
+
+    Windows consoles default to cp1252, which cannot encode the characters used
+    in this script's status output. Fixing the stream is preferable to folding
+    the text down to ASCII, which has to be redone every time a new character
+    appears. Mirrors `_configure_stdio` in template/scripts/agent-status.py.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except (ValueError, OSError):
+            pass
+
+
 def die(msg: str) -> None:
     print(f"ERROR: {msg}", file=sys.stderr)
     sys.exit(1)
@@ -128,7 +155,16 @@ def validate_slug(name: str) -> None:
 
 
 def find_python() -> str:
-    """Return the path to a Python 3 interpreter, or die trying."""
+    """Return the path to a Python 3 interpreter, or die trying.
+
+    Prefer the interpreter already running this script -- it is known to work.
+    A PATH lookup is the fallback, and on Windows it is actively wrong: it
+    finds the Microsoft Store `python3` alias, which is not an interpreter. The
+    alias prints an install advertisement and exits non-zero, which surfaces
+    here as a bogus "pyyaml is required" failure before anything is copied.
+    """
+    if sys.executable:
+        return sys.executable
     for candidate in ("python3", "python"):
         path = shutil.which(candidate)
         if path:
@@ -254,7 +290,11 @@ def uncomment_ci_job(workflow_path: Path, stack: str) -> None:
             in_block = True
             found = True
         if in_block:
-            if line.strip() == "":
+            # A comment-only line ("#") separates the two job blocks, so it has
+            # to terminate the block as well as a truly blank line -- otherwise
+            # uncommenting python-tests bleeds straight into node-tests and the
+            # project ships a job for a stack it does not have.
+            if line.strip() in ("", "#"):
                 in_block = False
                 out.append(line)
                 continue
@@ -506,14 +546,23 @@ def git_init(target: Path) -> None:
 # ---------------------------------------------------------------------------
 
 def files_in_dir(base: Path, rel_dir: str) -> dict[str, Path]:
-    """Return {relative-path: absolute-path} for all files under base/rel_dir."""
+    """Return {relative-path: absolute-path} for all files under base/rel_dir.
+
+    Skips Python bytecode caches, mirroring the ignore list in `copy_template`.
+    They are not template content and they are not UTF-8, so running the
+    template's own test suite in place would otherwise leave `.pyc` files that
+    crash `--upgrade` when it reads every candidate as text.
+    """
     root = base / rel_dir
     if not root.exists():
         return {}
     result: dict[str, Path] = {}
     for p in root.rglob("*"):
-        if p.is_file():
-            result[str(p.relative_to(base))] = p
+        if not p.is_file():
+            continue
+        if p.suffix == ".pyc" or "__pycache__" in p.parts:
+            continue
+        result[str(p.relative_to(base))] = p
     return result
 
 
@@ -544,6 +593,12 @@ def run_upgrade(project_path: Path, auto_yes: bool) -> None:
     template_files: dict[str, Path] = {}
     for infra_dir in INFRA_DIRS:
         template_files.update(files_in_dir(TEMPLATE_ROOT, infra_dir))
+
+    # Root-level infrastructure files (INFRA_DIRS only walks subdirectories).
+    for rel_name in INFRA_ROOT_FILES:
+        candidate = TEMPLATE_ROOT / rel_name
+        if candidate.is_file():
+            template_files[rel_name] = candidate
 
     # Also include specs/_template/
     template_files.update(files_in_dir(TEMPLATE_ROOT, "specs/_template"))
@@ -833,6 +888,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    _configure_stdio()
     parser = build_parser()
     args = parser.parse_args()
 

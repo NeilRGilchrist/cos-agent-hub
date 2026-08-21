@@ -10,3 +10,11 @@ _dispatch/
 # PR body is generated per-FR by the dispatcher and consumed by
 # `gh pr create --body-file`. It must not be committed.
 PR_BODY.md
+
+# Python bytecode and tool caches. The team scripts under scripts/ are always
+# Python and are exercised by tests/unit/scripts/, so these appear in every
+# project regardless of the project's own stack.
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
