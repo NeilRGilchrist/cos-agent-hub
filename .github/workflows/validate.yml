@@ -9,6 +9,9 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install pyyaml
-      - run: python scripts/hub-index.py
+      # The CI checkout is inherently partial: projects/ai-hub-poc is an
+      # unresolvable gitlink and ac-pmi-main/ is out-of-tree, so both index
+      # as empty. Smoke-test only -- never write, and declare the shrink.
+      - run: python scripts/hub-index.py --check --allow-shrink
       - run: python scripts/parking.py reindex
       - run: python scripts/patterns.py reindex

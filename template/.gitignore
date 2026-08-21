@@ -10,3 +10,14 @@ _dispatch/
 # PR body is generated per-FR by the dispatcher and consumed by
 # `gh pr create --body-file`. It must not be committed.
 PR_BODY.md
+
+# Python build/test caches. `bootstrap.py` runs scripts/index-specs.py during
+# project creation, which imports spec_footprint and leaves a __pycache__
+# behind before the initial commit.
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+*.egg-info/
