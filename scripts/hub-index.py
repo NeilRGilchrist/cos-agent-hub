@@ -304,7 +304,7 @@ def main() -> int:
             out_projects.append({**entry, "exists": False, "fr_count": 0})
             continue
         if _is_empty_dir(project_path):
-            print(
+            safe_print(
                 f"PARTIAL CHECKOUT: project '{name}' is an empty directory: "
                 f"{project_path}\n"
                 f"  This is an un-populated checkout, not a project without specs. "
@@ -407,14 +407,14 @@ def main() -> int:
         )
         if losses:
             action = "check failed for" if args.check else "refusing to write"
-            print(
+            safe_print(
                 f"ERROR: {action} {INDEX_JSON.relative_to(HUB_ROOT)}: the rebuild "
                 f"would lose FR data ({old_total} -> {new_total} FRs)",
                 file=sys.stderr,
             )
             for loss in losses:
-                print(f"  {loss}", file=sys.stderr)
-            print(
+                safe_print(f"  {loss}", file=sys.stderr)
+            safe_print(
                 "  Most likely a partial checkout: rebuild from the primary hub "
                 "checkout, not a git worktree or CI. Pass --allow-shrink if the "
                 "loss is intended (deleted FRs, archived project).",
