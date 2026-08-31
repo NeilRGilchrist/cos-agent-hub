@@ -135,6 +135,12 @@ SLASH_COMMAND_NAMES = {
     # see MNT_PROTECTED_GLOBS and mnt_permission_rules. Dev-shaped:
     # branches off `main`, authors PR_BODY.md, opens its own PR.
     "mnt": "maintainer",
+    # `docs` regenerates the client-doc projection from the doc spec + spec
+    # graph and emits ## FINDINGS instead of editing specs. Its mechanical
+    # deny on specs/** comes from ROLE_PERMISSIONS below when dispatched into a
+    # worktree; interactively it is a role contract. Dispatch wiring (one-shot
+    # after reconcile-merged) lands in Lockstep S-6.
+    "docs": "docs",
 }
 
 # Role -> Claude Code --model alias. The Reviewer and its backfill variant run
@@ -149,6 +155,10 @@ ROLE_MODEL: dict[str, str] = {
     "rev": "opus",
     "bkf": "opus",
     "mnt": "sonnet",
+    # NOTE: `docs` is intentionally absent until it is dispatched (Lockstep
+    # S-6). When added, it must equal the `model:` in the generated docs
+    # command frontmatter (sonnet) so the interactive and dispatch model
+    # choices do not drift.
 }
 
 
@@ -345,6 +355,87 @@ class ClaudeCodeAdapter:
     # .claude/settings.local.json at worktree-create time. Globs use
     # Claude Code's permission syntax.
     ROLE_PERMISSIONS: dict[str, dict[str, list[str]]] = {
+        # Docs role (Lockstep N-1). Regenerates the client-doc projection and
+        # emits ## FINDINGS; it must never touch the spec graph, source, tests,
+        # or the control plane. The allow-list is deliberately narrow: only the
+        # generated projection (docs/client), the doc spec (docs/_spec), the
+        # renderer's stamp/gap outputs, and FINDINGS.md. The hand-maintained
+        # docs (docs/architecture, docs/sources, docs/workflow, …) are NOT
+        # allowed and NOT broadly denied — they fall through to default-deny,
+        # so a `Deny(docs/**)` (which would also kill docs/client) is avoided.
+        "docs": {
+            "allow": [
+                "Read",
+                "Glob",
+                "Grep",
+                "TodoWrite",
+                # The generated projection + doc spec + renderer outputs.
+                "Edit(docs/client/**)",
+                "Write(docs/client/**)",
+                "Edit(docs/_spec/**)",
+                "Write(docs/_spec/**)",
+                "Write(docs/_gaps.md)",
+                "Write(docs/_render.json)",
+                # Discrepancies exit via FINDINGS, never via a spec edit.
+                "Edit(FINDINGS.md)",
+                "Write(FINDINGS.md)",
+                "Edit(PR_BODY.md)",
+                "Write(PR_BODY.md)",
+                # Runs the renderer / lint.
+                "Bash(python *)",
+                "Bash(python3 *)",
+                "Bash(py *)",
+                f"Bash({VENV_DIRNAME}/Scripts/python.exe *)",
+                f"Bash({VENV_DIRNAME}/Scripts/python *)",
+                f"Bash({VENV_DIRNAME}/bin/python *)",
+                # Filesystem inspection.
+                "Bash(ls *)",
+                "Bash(ls)",
+                "Bash(cat *)",
+                "Bash(head *)",
+                "Bash(tail *)",
+                "Bash(echo *)",
+                "Bash(pwd)",
+                # Git: inspect + local commit (dispatcher owns push & PR).
+                "Bash(git status*)",
+                "Bash(git diff*)",
+                "Bash(git log*)",
+                "Bash(git show*)",
+                "Bash(git add *)",
+                "Bash(git commit *)",
+                "Bash(git commit)",
+                "Bash(git checkout *)",
+                "Bash(git branch*)",
+                "Bash(git restore *)",
+                # Compound shells that reduce to permitted parts.
+                "Bash(* && *)",
+                "Bash(* || *)",
+                "Bash(* | *)",
+                "Bash(* ; *)",
+            ],
+            "deny": [
+                # The whole point of the role: never the spec graph, source,
+                # tests, or the control plane. Discrepancies exit via FINDINGS.
+                "Edit(specs/**)",
+                "Write(specs/**)",
+                "Edit(src/**)",
+                "Write(src/**)",
+                "Edit(tests/**)",
+                "Write(tests/**)",
+                "Edit(.agent-team/**)",
+                "Write(.agent-team/**)",
+                "Edit(scripts/**)",
+                "Write(scripts/**)",
+                "Edit(CLAUDE.md)",
+                "Write(CLAUDE.md)",
+                "Edit(AGENTS.md)",
+                "Write(AGENTS.md)",
+                # Destructive git — denied to every role.
+                "Bash(git push*)",
+                "Bash(git reset --hard*)",
+                "Bash(rm -rf*)",
+            ],
+        },
         "dev": {
             "allow": [
                 # Pure read tools — always safe
@@ -1696,7 +1787,7 @@ def spawn_role(
 # removes the worktrees/branches/locks. Idempotent: re-runs against
 # already-merged-and-cleaned FRs are no-ops.
 
-_FR_BRANCH_RE = re.compile(r"^claude/(dev|rev|bkf|mnt)-(FR-\d{4})$")
+_FR_BRANCH_RE = re.compile(r"^claude/(dev|rev|bkf|mnt|docs)-(FR-\d{4})$")
 
 # Conventional-commit header: `type(scope): subject`. The project convention is
 # that scope is the FR id(s) a PR touches, so the scope is a second, independent
@@ -2279,6 +2370,7 @@ ROLE_LABELS = {
     "rev": "Reviewer",
     "bkf": "Reviewer (backfill)",
     "mnt": "Maintainer",
+    "docs": "Docs",
 }
 
 
@@ -3685,6 +3777,51 @@ def _mnt_bash_allow() -> list[str]:
 
 _ESCALATION_MARKER = re.compile(r"^##\s+ESCALATION\b", re.MULTILINE)
 
+# A ## FINDINGS block is the NON-BLOCKING sibling of ## ESCALATION: an agent
+# surfaces observations worth someone's attention (a spec discrepancy, a
+# coverage gap, a doc drift) that must not block or drop, but must not vanish
+# either. Unlike an escalation it never changes the run's status. Each finding
+# line is `- [scope|spec|doc] <text>`; the tag is optional.
+_FINDINGS_MARKER = re.compile(r"^##\s+FINDINGS\b", re.MULTILINE)
+_FINDING_LINE = re.compile(r"^-\s+(?:\[(scope|spec|doc)\]\s*)?(.+)$")
+
+
+def _parse_findings(text: str | None) -> list[tuple[str, str]]:
+    """Extract (tag, text) findings from a ## FINDINGS block in the agent's
+    final message. Returns [] if there is no block. The tag is one of
+    scope|spec|doc, or "" when unlabelled; a "(none)" placeholder is skipped."""
+    if not text:
+        return []
+    m = _FINDINGS_MARKER.search(text)
+    if not m:
+        return []
+    findings: list[tuple[str, str]] = []
+    for line in text[m.end():].splitlines():
+        stripped = line.strip()
+        if stripped.startswith("## "):
+            break  # the next h2 heading closes the block
+        fm = _FINDING_LINE.match(stripped)
+        if not fm:
+            continue
+        tag = fm.group(1) or ""
+        body = fm.group(2).strip()
+        if not body or body.lower() == "(none)":
+            continue
+        findings.append((tag, body))
+    return findings
+
+
+def _collect_findings(results: list["WaveFRResult"]) -> list[tuple[str, str, str, str]]:
+    """Flatten (fr_id, phase, tag, text) findings across a wave's results."""
+    rows: list[tuple[str, str, str, str]] = []
+    for r in results:
+        for phase, outcome in (("dev", r.dev_outcome), ("rev", r.rev_outcome)):
+            if not outcome:
+                continue
+            for tag, body in outcome.findings:
+                rows.append((r.fr_id, phase, tag, body))
+    return rows
+
 
 @dataclasses.dataclass
 class AgentOutcome:
@@ -3693,6 +3830,8 @@ class AgentOutcome:
     status: str  # "success" | "error" | "escalation" | "timeout" | "no-log"
     summary: str
     verdict: str | None = None  # rev-only: "approve" | "request-changes" | "comment"
+    # Non-blocking observations from a ## FINDINGS block. Independent of status.
+    findings: list[tuple[str, str]] = dataclasses.field(default_factory=list)
 
 
 def _wait_for_phase(
@@ -3747,19 +3886,26 @@ def _evaluate_agent_outcome(
         return AgentOutcome(status="no-log", summary="no log file found")
 
     summary = adapter.parse_log(log_path)
+    # Findings are non-blocking, so they ride along on whatever outcome we
+    # return — success, error, or escalation alike — never altering the status.
+    findings = _parse_findings(summary.last_text)
 
     if summary.is_error:
         detail = summary.result_subtype or "unknown error"
-        return AgentOutcome(status="error", summary=f"agent error: {detail}")
+        return AgentOutcome(status="error", summary=f"agent error: {detail}", findings=findings)
 
     if summary.last_text and _ESCALATION_MARKER.search(summary.last_text):
-        return AgentOutcome(status="escalation", summary="agent emitted ESCALATION block")
+        return AgentOutcome(
+            status="escalation", summary="agent emitted ESCALATION block", findings=findings
+        )
 
     if role == "rev":
         verdict, _ = _extract_review_verdict(summary.last_text)
-        return AgentOutcome(status="success", summary="reviewer completed", verdict=verdict)
+        return AgentOutcome(
+            status="success", summary="reviewer completed", verdict=verdict, findings=findings
+        )
 
-    return AgentOutcome(status="success", summary="agent completed successfully")
+    return AgentOutcome(status="success", summary="agent completed successfully", findings=findings)
 
 
 
@@ -3861,6 +4007,19 @@ def _write_wave_synthesis(
             lines.append(f"- {r.fr_id}: escalation during {phase} (see _dispatch/{r.fr_id}.{phase}.log)")
     else:
         lines.append("## Open Escalations")
+        lines.append("(none)")
+    lines.append("")
+
+    # Findings — non-blocking observations agents surfaced (## FINDINGS). Always
+    # rendered so a finding is never a silent drop; separate from escalations
+    # because it neither blocks nor demands a decision before the wave proceeds.
+    finding_rows = _collect_findings(results)
+    lines.append("## Findings")
+    if finding_rows:
+        for fr_id, phase, tag, body in finding_rows:
+            tag_note = f"[{tag}] " if tag else ""
+            lines.append(f"- {fr_id} ({phase}): {tag_note}{body}")
+    else:
         lines.append("(none)")
     lines.append("")
 
@@ -4272,6 +4431,61 @@ def _run_rework_rounds(
                   f"exhausted without approval; escalate to a human")
 
 
+def _find_hub_root(start: Path) -> Path | None:
+    """Locate the workspace hub (which owns scripts/parking.py) from a project.
+
+    Projects nested under <hub>/projects/<name>/ resolve by walking up. Projects
+    registered out-of-tree (see hub/projects.yaml) are not under the hub, so the
+    walk fails — set DISPATCH_HUB_ROOT to the hub root in that case."""
+    env = os.environ.get("DISPATCH_HUB_ROOT")
+    if env:
+        p = Path(env).expanduser()
+        if (p / "scripts" / "parking.py").exists():
+            return p
+    for parent in [start, *start.parents]:
+        if (parent / "scripts" / "parking.py").exists() and (parent / "parking-lot").is_dir():
+            return parent
+    return None
+
+
+def _park_findings(rows: list[tuple[str, str, str, str]], started_at: str) -> None:
+    """Append each wave finding to the hub parking lot via `parking.py add`.
+
+    Serial by contract: the hub CRUD scripts read-mutate-rewrite shared indexes
+    and must never run concurrently, so findings are parked one at a time from
+    this single post-wave process. If the hub can't be located the findings stay
+    in the wave synthesis (never dropped) and nothing is parked."""
+    if not rows:
+        print("No findings to park.")
+        return
+    hub_root = _find_hub_root(REPO_ROOT)
+    if hub_root is None:
+        print(
+            "WARN: --park-findings: could not locate the hub parking lot. Set "
+            "DISPATCH_HUB_ROOT to the hub root. Findings remain in the wave "
+            "synthesis; none were parked.",
+            file=sys.stderr,
+        )
+        return
+    parking = hub_root / "scripts" / "parking.py"
+    parked = 0
+    for fr_id, phase, tag, body in rows:
+        title = body if len(body) <= 80 else body[:77] + "..."
+        tags = ",".join(t for t in (tag, "finding") if t)
+        cmd = [
+            sys.executable, str(parking), "add", title,
+            "--tags", tags,
+            "--context", f"dispatch wave {started_at} — {fr_id} ({phase})",
+            "--value", "(surfaced by a dispatched agent; triage before promote)",
+        ]
+        try:
+            subprocess.run(cmd, cwd=str(hub_root), check=True)
+            parked += 1
+        except subprocess.CalledProcessError as e:
+            print(f"WARN: failed to park finding for {fr_id}: {e}", file=sys.stderr)
+    print(f"Parked {parked}/{len(rows)} finding(s) into {hub_root / 'parking-lot'}.")
+
+
 def cmd_wave(
     apply: bool,
     adapter: HarnessAdapter,
@@ -4281,6 +4495,7 @@ def cmd_wave(
     poll_interval: float = 30,
     fr_filter: list[str] | None = None,
     rounds: int = 1,
+    park_findings: bool = False,
 ) -> int:
     """Autonomous dispatch-to-PR pipeline.
 
@@ -4653,6 +4868,8 @@ def cmd_wave(
     # Synthesis
     # ------------------------------------------------------------------
     _write_wave_synthesis(results, started_at, time.monotonic() - wave_start)
+    if park_findings:
+        _park_findings(_collect_findings(results), started_at)
 
     any_dropped = any(r.dropped_at for r in results)
     return 1 if any_dropped and not any(r.completed_e2e for r in results) else 0
@@ -4874,6 +5091,16 @@ def main() -> int:
             "generated rework brief."
         ),
     )
+    p_wave.add_argument(
+        "--park-findings",
+        action="store_true",
+        help=(
+            "After synthesis, append each agent ## FINDINGS item to the hub "
+            "parking lot via scripts/parking.py (serial). Findings always appear "
+            "in the wave synthesis regardless; this also captures them as IDEAs. "
+            "Set DISPATCH_HUB_ROOT if the project is not nested under the hub."
+        ),
+    )
     add_fr_selector(p_wave)
     add_harness(p_wave)
 
@@ -4919,6 +5146,7 @@ def main() -> int:
             poll_interval=args.poll_interval,
             fr_filter=parse_fr_selector(args.fr),
             rounds=args.rounds,
+            park_findings=args.park_findings,
         )
     parser.print_help()
     return 0
