@@ -125,6 +125,25 @@ wave synthesis (`## Findings`) automatically, and `dispatch.py wave
 --park-findings` can capture each as a parking-lot IDEA. A finding is never a
 drop — but it is also never a task until a human triages it.
 
+## Artifact: Ratification (records client sign-off on an AC)
+
+When a client signs off on an acceptance criterion, record it in two places on
+the FR:
+
+1. **Frontmatter** — set that AC's `ac_state.<n>` to
+   `{state: ratified, source: <ref>, ratified: <date>, hash: <hash>}`. Get the
+   hash from `python scripts/index-specs.py --ac-hashes FR-XXXX` at the moment of
+   sign-off — it pins the exact AC text that was ratified.
+2. **Changelog** — `YYYY-MM-DD: AC-N ratified — source: <ref>`.
+
+`<ref>` is an opaque source string (e.g. `fathom:<recording_id>#<segment>`,
+`outlook:<message_id>`); nothing in the repo dereferences it.
+
+If a ratified AC's text later changes, its recorded hash no longer matches and
+`index-specs.py` flags it as needing `client-review` (warn-only). Re-ratify by
+recording a fresh hash and a new Changelog line — never edit the hash to silence
+the warning without an actual sign-off.
+
 ## What NOT to put in handoff artifacts
 
 - ❌ Conversation history with the human ("the user said X")

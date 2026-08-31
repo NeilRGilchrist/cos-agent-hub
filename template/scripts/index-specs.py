@@ -15,9 +15,11 @@ Exits 0 on success, non-zero on validation failure (so it can run in CI).
 
 from __future__ import annotations
 
+import argparse
+import hashlib
 import re
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 try:
@@ -59,6 +61,11 @@ VALID_STATUSES = {
 FR_FILE_PATTERN = re.compile(r"^FR-\d{4}-.+\.md$")
 FR_ID_PATTERN = re.compile(r"^FR-\d{4}$")
 FRONTMATTER_PATTERN = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
+AC_LINE_PATTERN = re.compile(r"^-\s+\*\*AC-(\d+):\*\*\s*(.*)$")
+
+# Per-AC ratification lifecycle (Lockstep N-4). A ratified AC whose text later
+# changes is drift — reported as needing re-review (warn-only for now).
+AC_STATES = {"proposed", "refined", "client-review", "ratified", "superseded"}
 
 
 @dataclass
@@ -76,6 +83,55 @@ class FR:
     updated: str
     owns: tuple[str, ...]
     reads: tuple[str, ...]
+    acs: dict[int, str] = field(default_factory=dict)
+    ac_state: dict = field(default_factory=dict)
+
+
+def _section_body(text: str, heading: str) -> str:
+    """Return the body of a `## <heading>` section, up to the next `## `."""
+    out: list[str] = []
+    in_section = False
+    want = heading.strip().lower()
+    for line in text.splitlines():
+        if line.startswith("## "):
+            if in_section:
+                break
+            in_section = line[3:].strip().lower() == want
+            continue
+        if in_section:
+            out.append(line)
+    return "\n".join(out)
+
+
+def parse_acs(text: str) -> dict[int, str]:
+    """Return {AC number: raw text} from the Acceptance criteria section. An AC
+    spans its bullet line through any continuation lines up to the next AC
+    bullet, so multi-line ACs hash on their full text."""
+    acs: dict[int, str] = {}
+    current: int | None = None
+    buf: list[str] = []
+    for line in _section_body(text, "Acceptance criteria").splitlines():
+        m = AC_LINE_PATTERN.match(line)
+        if m:
+            if current is not None:
+                acs[current] = "\n".join(buf).strip()
+            current = int(m.group(1))
+            buf = [m.group(2)]
+        elif current is not None:
+            buf.append(line)
+    if current is not None:
+        acs[current] = "\n".join(buf).strip()
+    return acs
+
+
+def normalize_ac_text(text: str) -> str:
+    """Whitespace-insensitive normalization, so reflowing an AC does not read as
+    a change. This is the contract a recorded `hash` is computed against."""
+    return " ".join(text.split())
+
+
+def ac_hash(text: str) -> str:
+    return hashlib.sha256(normalize_ac_text(text).encode("utf-8")).hexdigest()
 
 
 def parse_fr(path: Path) -> tuple[FR | None, list[str]]:
@@ -134,6 +190,12 @@ def parse_fr(path: Path) -> tuple[FR | None, list[str]]:
     if errors:
         return None, errors
 
+    # AC bodies + optional per-AC ratification state (Lockstep N-4). Neither is
+    # required and neither can fail the build — ac_state issues are warn-only.
+    acs = parse_acs(text[match.end():])
+    raw_ac_state = meta.get("ac_state")
+    ac_state = raw_ac_state if isinstance(raw_ac_state, dict) else {}
+
     return (
         FR(
             path=path,
@@ -149,6 +211,8 @@ def parse_fr(path: Path) -> tuple[FR | None, list[str]]:
             updated=str(meta["updated"]),
             owns=footprint.owns,
             reads=footprint.reads,
+            acs=acs,
+            ac_state=ac_state,
         ),
         [],
     )
@@ -227,6 +291,60 @@ def _render_overlap_warnings(frs: list[FR], repo_files: list[str]) -> list[str]:
     return lines
 
 
+def _ac_state_warnings(frs: list[FR]) -> list[str]:
+    """Warn-only checks on per-AC ratification state (Lockstep N-4).
+
+    Measurement before enforcement (CLAUDE.md rule 1): these never fail the
+    build. An FR with no `ac_state` at all is 'unmanaged' and skipped silently —
+    that is the migration default for FRs written before ratification tracking.
+    Once an FR opts in (any `ac_state`), gaps in its coverage are reported."""
+    warnings: list[str] = []
+    for fr in sorted(frs, key=lambda f: f.id):
+        if not fr.ac_state:
+            continue  # unmanaged — no opt-in, no noise
+        state_by_n: dict[int, dict] = {}
+        for k, v in fr.ac_state.items():
+            try:
+                state_by_n[int(k)] = v if isinstance(v, dict) else {}
+            except (TypeError, ValueError):
+                warnings.append(f"{fr.id}: ac_state has a non-numeric key '{k}'")
+        for n, entry in sorted(state_by_n.items()):
+            if n not in fr.acs:
+                warnings.append(
+                    f"{fr.id}: ac_state references AC-{n}, which has no matching "
+                    "acceptance criterion"
+                )
+                continue
+            state = str(entry.get("state", ""))
+            if state not in AC_STATES:
+                warnings.append(f"{fr.id} AC-{n}: state '{state}' not in {sorted(AC_STATES)}")
+            if state == "ratified":
+                stored = entry.get("hash")
+                current = ac_hash(fr.acs[n])
+                if not stored:
+                    warnings.append(
+                        f"{fr.id} AC-{n}: ratified but has no recorded hash — "
+                        f"record hash: {current}"
+                    )
+                elif str(stored) != current:
+                    warnings.append(
+                        f"{fr.id} AC-{n}: ratified text changed since sign-off - needs "
+                        f"client-review (recorded {str(stored)[:12]}.., current {current[:12]}..)"
+                    )
+        unmanaged = sorted(n for n in fr.acs if n not in state_by_n)
+        if unmanaged:
+            listed = ", ".join(f"AC-{n}" for n in unmanaged)
+            warnings.append(f"{fr.id}: no ac_state entry for {listed}")
+    return warnings
+
+
+def _render_ac_state_warnings(frs: list[FR]) -> list[str]:
+    warnings = _ac_state_warnings(frs)
+    if not warnings:
+        return []
+    return ["", "## AC ratification warnings", "", *[f"- {w}" for w in warnings]]
+
+
 def _render_undeclared_section(frs: list[FR]) -> list[str]:
     # Only flag active-status FRs as missing footprint; merged/deprecated/draft
     # don't need to declare. AC-4 treats "footprint not declared" as a soft
@@ -268,6 +386,7 @@ def render_index(frs: list[FR], repo_files: list[str]) -> str:
         )
     lines.extend(_render_overlap_warnings(frs, repo_files))
     lines.extend(_render_undeclared_section(frs))
+    lines.extend(_render_ac_state_warnings(frs))
     lines.append("")
     return "\n".join(lines)
 
@@ -320,6 +439,30 @@ def render_codeowners(frs: list[FR], handle: str) -> str:
 
 
 def main() -> int:
+    ap = argparse.ArgumentParser(description="Index specs/ and validate the FR graph.")
+    ap.add_argument(
+        "--ac-hashes",
+        nargs="?",
+        const="*",
+        metavar="FR-XXXX",
+        help=(
+            "Print the normalized hash of every acceptance criterion (the value to "
+            "record under ac_state.<n>.hash when ratifying) and exit. Optionally "
+            "limit to one FR."
+        ),
+    )
+    args = ap.parse_args()
+
+    if args.ac_hashes is not None:
+        frs, _ = collect_frs()
+        target = None if args.ac_hashes == "*" else args.ac_hashes
+        for fr in sorted(frs, key=lambda f: f.id):
+            if target and fr.id != target:
+                continue
+            for n in sorted(fr.acs):
+                print(f"{fr.id} AC-{n}: {ac_hash(fr.acs[n])}")
+        return 0
+
     frs, parse_errors = collect_frs()
     graph_errors = validate_graph(frs)
     all_errors = parse_errors + graph_errors
@@ -334,6 +477,15 @@ def main() -> int:
 
     INDEX_PATH.write_text(render_index(frs, repo_files), encoding="utf-8")
     print(f"Wrote {INDEX_PATH.relative_to(REPO_ROOT)} ({len(frs)} FRs)")
+
+    # Warn-only: surface AC ratification drift on the console too (it is also
+    # rendered into INDEX.md). Never changes the exit code — enforcement is a
+    # later phase.
+    ac_warnings = _ac_state_warnings(frs)
+    if ac_warnings:
+        print(f"AC ratification warnings ({len(ac_warnings)}):", file=sys.stderr)
+        for w in ac_warnings:
+            print(f"  - {w}", file=sys.stderr)
 
     handle = _load_codeowners_handle()
     if handle is not None:

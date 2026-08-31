@@ -9,6 +9,9 @@ owns: []  # list of POSIX-style globs (relative to repo root) the Developer is p
 reads: []  # list of POSIX-style globs the Developer's implementation reads or consumes. Documentation only today; reserved for follow-on cross-commit-warning tooling. Same syntax rules as `owns`.
 derived_from: null  # optional "IDEA-NNNN" if this FR was promoted from a parked idea
 pattern: null  # optional "PATTERN-NNNN" if this FR is recognized as an instance of a hub-level pattern
+ac_state: {}  # optional per-AC ratification state (Lockstep N-4), keyed by AC number. Leave {} until you start tracking ratification; an FR with no ac_state is "unmanaged" and the indexer stays silent about it. Once you add any entry, the indexer warns about ACs you left out. Each entry is {state, source, ratified, hash}; state ∈ proposed | refined | client-review | ratified | superseded. Record `hash` from `python scripts/index-specs.py --ac-hashes FR-XXXX` at the moment of ratification; if a ratified AC's text later changes, the hash no longer matches and the indexer flags it for client-review. Example:
+  # 1: {state: ratified, source: "fathom:rec_123#seg4", ratified: 2026-08-20, hash: "<64-hex>"}
+  # 2: {state: proposed, source: null, ratified: null, hash: null}
 created: YYYY-MM-DD
 updated: YYYY-MM-DD
 ---
@@ -56,5 +59,13 @@ If this FR depends on others, explain the nature of the dependency:
 Anything that helps a Developer understand context but isn't itself an acceptance criterion. Keep it short.
 
 ## Changelog
+
+Ratifications are recorded here with a source reference, in addition to updating
+the AC's `ac_state` in the frontmatter. The source is an opaque string the
+renderer never dereferences (e.g. `fathom:<recording_id>#<segment>`,
+`outlook:<message_id>`):
+
+- `YYYY-MM-DD: AC-N ratified — source: <ref>`
+- `YYYY-MM-DD: AC-N flagged for re-review — text changed after ratification`
 
 - YYYY-MM-DD: created
