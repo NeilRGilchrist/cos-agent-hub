@@ -135,6 +135,12 @@ SLASH_COMMAND_NAMES = {
     # see MNT_PROTECTED_GLOBS and mnt_permission_rules. Dev-shaped:
     # branches off `main`, authors PR_BODY.md, opens its own PR.
     "mnt": "maintainer",
+    # `docs` regenerates the client-doc projection from the doc spec + spec
+    # graph and emits ## FINDINGS instead of editing specs. Its mechanical
+    # deny on specs/** comes from ROLE_PERMISSIONS below when dispatched into a
+    # worktree; interactively it is a role contract. Dispatch wiring (one-shot
+    # after reconcile-merged) lands in Lockstep S-6.
+    "docs": "docs",
 }
 
 # Role -> Claude Code --model alias. The Reviewer and its backfill variant run
@@ -149,6 +155,10 @@ ROLE_MODEL: dict[str, str] = {
     "rev": "opus",
     "bkf": "opus",
     "mnt": "sonnet",
+    # NOTE: `docs` is intentionally absent until it is dispatched (Lockstep
+    # S-6). When added, it must equal the `model:` in the generated docs
+    # command frontmatter (sonnet) so the interactive and dispatch model
+    # choices do not drift.
 }
 
 
@@ -345,6 +355,87 @@ class ClaudeCodeAdapter:
     # .claude/settings.local.json at worktree-create time. Globs use
     # Claude Code's permission syntax.
     ROLE_PERMISSIONS: dict[str, dict[str, list[str]]] = {
+        # Docs role (Lockstep N-1). Regenerates the client-doc projection and
+        # emits ## FINDINGS; it must never touch the spec graph, source, tests,
+        # or the control plane. The allow-list is deliberately narrow: only the
+        # generated projection (docs/client), the doc spec (docs/_spec), the
+        # renderer's stamp/gap outputs, and FINDINGS.md. The hand-maintained
+        # docs (docs/architecture, docs/sources, docs/workflow, …) are NOT
+        # allowed and NOT broadly denied — they fall through to default-deny,
+        # so a `Deny(docs/**)` (which would also kill docs/client) is avoided.
+        "docs": {
+            "allow": [
+                "Read",
+                "Glob",
+                "Grep",
+                "TodoWrite",
+                # The generated projection + doc spec + renderer outputs.
+                "Edit(docs/client/**)",
+                "Write(docs/client/**)",
+                "Edit(docs/_spec/**)",
+                "Write(docs/_spec/**)",
+                "Write(docs/_gaps.md)",
+                "Write(docs/_render.json)",
+                # Discrepancies exit via FINDINGS, never via a spec edit.
+                "Edit(FINDINGS.md)",
+                "Write(FINDINGS.md)",
+                "Edit(PR_BODY.md)",
+                "Write(PR_BODY.md)",
+                # Runs the renderer / lint.
+                "Bash(python *)",
+                "Bash(python3 *)",
+                "Bash(py *)",
+                f"Bash({VENV_DIRNAME}/Scripts/python.exe *)",
+                f"Bash({VENV_DIRNAME}/Scripts/python *)",
+                f"Bash({VENV_DIRNAME}/bin/python *)",
+                # Filesystem inspection.
+                "Bash(ls *)",
+                "Bash(ls)",
+                "Bash(cat *)",
+                "Bash(head *)",
+                "Bash(tail *)",
+                "Bash(echo *)",
+                "Bash(pwd)",
+                # Git: inspect + local commit (dispatcher owns push & PR).
+                "Bash(git status*)",
+                "Bash(git diff*)",
+                "Bash(git log*)",
+                "Bash(git show*)",
+                "Bash(git add *)",
+                "Bash(git commit *)",
+                "Bash(git commit)",
+                "Bash(git checkout *)",
+                "Bash(git branch*)",
+                "Bash(git restore *)",
+                # Compound shells that reduce to permitted parts.
+                "Bash(* && *)",
+                "Bash(* || *)",
+                "Bash(* | *)",
+                "Bash(* ; *)",
+            ],
+            "deny": [
+                # The whole point of the role: never the spec graph, source,
+                # tests, or the control plane. Discrepancies exit via FINDINGS.
+                "Edit(specs/**)",
+                "Write(specs/**)",
+                "Edit(src/**)",
+                "Write(src/**)",
+                "Edit(tests/**)",
+                "Write(tests/**)",
+                "Edit(.agent-team/**)",
+                "Write(.agent-team/**)",
+                "Edit(scripts/**)",
+                "Write(scripts/**)",
+                "Edit(CLAUDE.md)",
+                "Write(CLAUDE.md)",
+                "Edit(AGENTS.md)",
+                "Write(AGENTS.md)",
+                # Destructive git — denied to every role.
+                "Bash(git push*)",
+                "Bash(git reset --hard*)",
+                "Bash(rm -rf*)",
+            ],
+        },
         "dev": {
             "allow": [
                 # Pure read tools — always safe
@@ -1696,7 +1787,7 @@ def spawn_role(
 # removes the worktrees/branches/locks. Idempotent: re-runs against
 # already-merged-and-cleaned FRs are no-ops.
 
-_FR_BRANCH_RE = re.compile(r"^claude/(dev|rev|bkf|mnt)-(FR-\d{4})$")
+_FR_BRANCH_RE = re.compile(r"^claude/(dev|rev|bkf|mnt|docs)-(FR-\d{4})$")
 
 # Conventional-commit header: `type(scope): subject`. The project convention is
 # that scope is the FR id(s) a PR touches, so the scope is a second, independent
@@ -2279,6 +2370,7 @@ ROLE_LABELS = {
     "rev": "Reviewer",
     "bkf": "Reviewer (backfill)",
     "mnt": "Maintainer",
+    "docs": "Docs",
 }
 
 

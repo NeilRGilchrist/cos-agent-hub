@@ -77,10 +77,14 @@ COMMAND_META = {
     "developer": {
         "description": "Operate as the Developer for a given FR. Implement code that satisfies its acceptance criteria — nothing more.",
         "argument-hint": "FR-XXXX",
+        "model": "sonnet",
+        "effort": "medium",
     },
     "reviewer": {
         "description": "Operate as the Reviewer for a given FR. Write tests adversarially against every AC, then approve or kick back.",
         "argument-hint": "FR-XXXX",
+        "model": "opus",
+        "effort": "high",
     },
     "reviewer-backfill": {
         "description": "Backfill missing reviewer tests for an FR whose dev cycle is already complete (PR merged). One-shot follow-up.",
@@ -97,6 +101,35 @@ COMMAND_META = {
     "status": {
         "description": "Show the current state of the spec graph — ready, in-flight, blocked, drafting.",
         "argument-hint": "FR-XXXX (optional)",
+    },
+    # Backfilled: these command sources exist under .agent-team/commands/ but
+    # had no metadata, so generate_commands fell back to "Run the <name>
+    # command." with no argument hint.
+    "maintainer": {
+        "description": "Operate as the Developer in maintainer mode for an FR whose owns: footprint intersects the control plane. One-shot; owns:-scoped.",
+        "argument-hint": "FR-XXXX",
+    },
+    "orchestrator": {
+        "description": "Operate as the Orchestrator. Drive dev→review→PR phases for a batch of FRs from the main thread.",
+        "argument-hint": "FR-XXXX ... or free-text batch description",
+    },
+    # New (Lockstep N-1): the docs role regenerates client-doc projections and
+    # emits ## FINDINGS rather than editing the spec graph. `allowed-tools` here
+    # is pre-approval convenience for the regenerate/lint happy path only — it is
+    # additive, not a boundary; the mechanical specs/** deny lives on the
+    # dispatch path (per-worktree settings.local.json).
+    "docs": {
+        "description": "Operate as the Docs role. Regenerate client docs from the doc spec + spec graph; surface drift via ## FINDINGS. Never edits specs.",
+        "argument-hint": "<doc-id> (optional)",
+        "model": "sonnet",
+        "effort": "medium",
+        "allowed-tools": (
+            "Read, Glob, Grep, "
+            "Edit(docs/client/**), Write(docs/client/**), "
+            "Edit(docs/_spec/**), Write(docs/_spec/**), "
+            "Write(docs/_gaps.md), Write(docs/_render.json), "
+            "Edit(FINDINGS.md), Write(FINDINGS.md), Bash(python *)"
+        ),
     },
 }
 
@@ -295,25 +328,42 @@ def generate_commands(target: Path) -> int:
         desc = meta.get("description", f"Run the {name} command.")
         hint = meta.get("argument-hint", "")
 
-        fm_lines = ["---", f'description: "{desc}"']
+        # Shared keys (both harnesses).
+        base_lines = ["---", f'description: "{desc}"']
         if hint:
-            fm_lines.append(f'argument-hint: "{hint}"')
-        fm_lines.append("---")
-        frontmatter = "\n".join(fm_lines)
+            base_lines.append(f'argument-hint: "{hint}"')
 
-        claude_content = (
-            f"<!-- Generated from .agent-team/commands/{src.name} — do not edit by hand. -->\n"
-            f"{frontmatter}\n\n"
-            f"{body}\n"
+        # Claude-only keys. Cursor selects models/tools through its own config,
+        # so `model`/`effort`/`allowed-tools` are emitted into the .claude
+        # variant only. `allowed-tools` is an additive pre-approval grant, not a
+        # restriction (unlisted tools still follow the session's permission
+        # rules), so it is convenience, not a security boundary.
+        claude_lines = list(base_lines)
+        if meta.get("model"):
+            claude_lines.append(f"model: {meta['model']}")
+        if meta.get("effort"):
+            claude_lines.append(f"effort: {meta['effort']}")
+        if meta.get("allowed-tools"):
+            claude_lines.append(f"allowed-tools: {meta['allowed-tools']}")
+        claude_lines.append("---")
+        base_lines.append("---")
+
+        claude_fm = "\n".join(claude_lines)
+        cursor_fm = "\n".join(base_lines)
+
+        # The `---` block must open on line 1 or the harness may fail to parse
+        # the frontmatter (behaviour with leading content is undocumented), so
+        # the "generated" notice follows the closing `---` rather than leading.
+        gen_note = (
+            f"<!-- Generated from .agent-team/commands/{src.name} — "
+            f"do not edit by hand. -->"
         )
+
+        claude_content = f"{claude_fm}\n{gen_note}\n\n{body}\n"
         (claude_dir / src.name).write_text(claude_content, encoding="utf-8")
 
         cursor_body = body.replace("$ARGUMENTS", "{{args}}")
-        cursor_content = (
-            f"<!-- Generated from .agent-team/commands/{src.name} — do not edit by hand. -->\n"
-            f"{frontmatter}\n\n"
-            f"{cursor_body}\n"
-        )
+        cursor_content = f"{cursor_fm}\n{gen_note}\n\n{cursor_body}\n"
         (cursor_dir / src.name).write_text(cursor_content, encoding="utf-8")
         generated += 1
 
@@ -738,6 +788,9 @@ Roles available via slash commands:
   /developer FR-XXXX
   /reviewer FR-XXXX
   /reviewer-backfill FR-XXXX
+  /maintainer FR-XXXX
+  /orchestrator [FR-XXXX ... | description]
+  /docs [doc-id]
   /gate [--stage dev|full]
   /status [FR-XXXX]
   /escalate <reason>""")
