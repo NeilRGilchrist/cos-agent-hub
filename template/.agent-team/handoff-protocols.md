@@ -95,6 +95,36 @@ The Developer does not need to read other agents' conversation history.
 
 See `.agent-team/escalation-matrix.md` — uses the structured `## ESCALATION` block format.
 
+## Artifact: Findings (any role → wave synthesis / parking lot)
+
+A `## FINDINGS` block is the **non-blocking** sibling of `## ESCALATION`. Use it
+when you notice something worth another person's attention that is **not** your
+FR's job to fix and does **not** block your work — a spec that contradicts an
+ADR, an active FR no doc covers, a doc that has drifted, a fixture that looks
+stale. An escalation stops work and demands a decision; a finding is recorded
+and moves on. If a thing blocks you, escalate it — don't downgrade it to a
+finding.
+
+**Lives at:** the last block of your final message (the dispatcher parses it
+from there).
+
+**Required contents:**
+```markdown
+## FINDINGS
+- [spec] FR-0007 AC-2 contradicts ADR-0003 on retention.
+- [scope] Active FR-0012 (`ready`) is covered by no doc spec.
+- [doc] The overview doc omits the new error path.
+```
+
+Each line is `- [scope|spec|doc] <one sentence>` — `spec` for spec-graph
+problems, `doc` for documentation problems, `scope` for coverage gaps; the tag
+is optional. Emit the block even when empty (`- (none)`).
+
+**Handoff signal:** none required. The dispatcher collects findings into the
+wave synthesis (`## Findings`) automatically, and `dispatch.py wave
+--park-findings` can capture each as a parking-lot IDEA. A finding is never a
+drop — but it is also never a task until a human triages it.
+
 ## What NOT to put in handoff artifacts
 
 - ❌ Conversation history with the human ("the user said X")
