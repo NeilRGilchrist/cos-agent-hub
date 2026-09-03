@@ -13,6 +13,10 @@ __pycache__/
 # Out-of-tree projects with their own git history
 # (registered in hub/projects.yaml; not tracked by the hub repo)
 /ac-pmi-main/
+/projects/ns-sltc-pathways-integration/
+/projects/prototypes/neilgilchrist-nsh-eru-and-finrec-module/
+# Zip snapshot of the above; regenerable, never committed
+/projects/ns-sltc-pathways-integration.zip
 
 # Sandbox leftover from hub promotion — empty dir that resists removal
 /agent-team-template/
@@ -22,3 +26,9 @@ __pycache__/
 
 # Local user data (never committed)
 /mnt/user-data/
+
+# Sensitive working data — customer names / internal notes / scratch; never committed
+/hub/Internal Meeting Notes/
+/hub/tmp/
+/scripts/gen-session-hub.js
+/scripts/session-hub-output.html
