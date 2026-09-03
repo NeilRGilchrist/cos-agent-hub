@@ -25,9 +25,15 @@ projects:
   path: projects/prototypes/neilgilchrist-nsh-eru-and-finrec-module
   created: '2026-06-04'
   stack: node
-  private: false
+  # Gitignored, out-of-tree, not a submodule: the hub can't see its specs in a
+  # clean checkout/CI, so exclude it from the shared FR-INDEX.json (which must be
+  # reproducible). Still registered here for path/stack visibility.
+  private: true
 - name: ns-sltc-pathways-integration
   path: projects/ns-sltc-pathways-integration
   created: '2026-08-21'
   stack: python
-  private: false
+  # Gitignored, out-of-tree, not a submodule: excluded from the shared
+  # FR-INDEX.json so the committed index stays reproducible in CI. See the
+  # nsh-eru entry above.
+  private: true
