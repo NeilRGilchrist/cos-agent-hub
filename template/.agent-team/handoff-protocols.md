@@ -12,7 +12,7 @@ Agents coordinate through artifacts, not chat. This document defines what each a
 - Out-of-scope section
 - Changelog (if updated)
 
-**Handoff signal:** Frontmatter `status: ready`, plus a message to the Developer naming the FR ID.
+**Handoff signal:** Frontmatter `status: ready`, the FR spec (and regenerated `specs/INDEX.md`) committed to the base branch, plus a message to the Developer naming the FR ID. The spec must be committed — dispatched worktrees are clean checkouts of the base branch, so an uncommitted spec is invisible and the Developer fails with "FR not found".
 
 **What the Developer reads to start work:**
 1. The FR file itself (full)

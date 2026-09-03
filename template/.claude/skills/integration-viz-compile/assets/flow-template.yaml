@@ -1,0 +1,107 @@
+# flow.yaml — topology spine for one integration.
+#
+# Role in the pack: FRs own requirements (why + acceptance criteria + ADRs);
+# this file owns SEQUENCE and STRUCTURE — which system does what, in what
+# order, and what moves between steps. The compile skill joins the two by ID.
+#
+# Conventions:
+#   - Every id is stable and permanent. Corrections, override-ledger entries,
+#     and future graph nodes address flow.step_id, so never recycle an id.
+#   - seq uses gaps of 10 so steps can be inserted without renumbering.
+#   - FRs that belong to this integration should carry the tag
+#     `integration:<this file's id>` in their frontmatter — the compiler
+#     uses it to detect tagged-but-unreferenced FRs (coverage lint).
+
+id: int-example-sync            # stable integration id; becomes the tag suffix
+title: Example Integration
+version: "0.1"
+purpose: >
+  One sentence on why this integration exists, written for the person
+  who has never seen it before.
+trigger:
+  type: event                   # event | schedule | manual
+  detail: "What actually kicks it off (webhook name, cron, user action)"
+success_criterion: >
+  The observable condition that means this integration is working.
+
+# --- Lanes -------------------------------------------------------------
+systems:
+  - id: sys-source
+    name: Source System
+    kind: external              # internal | external | partner
+  - id: sys-hub
+    name: Integration Layer
+    kind: internal
+
+# --- Steps -------------------------------------------------------------
+# Each step: the FR carries the why; contract/behavior here carry the
+# implementation specifics the FR doesn't (endpoints, retries, timeouts).
+steps:
+  - id: step-receive            # stable; never recycle
+    seq: 10
+    system: sys-source
+    title: Receive inbound event
+    mode: async                 # sync | async
+    cadence: event              # event | batch | schedule | manual
+    phi: true                   # marks a compliance-sensitive step
+    path: happy                 # happy | failure (failure steps render only in overlay)
+    why: "One-line orientation; the linked FRs carry the full context."
+    fr_refs: [FR-EX-001]        # join keys into the pack
+    contract:
+      protocol: HTTPS
+      endpoint: POST /webhooks/example
+      auth: HMAC signature (shared secret)
+      payload_ref: pl-raw       # what this step consumes/produces
+      notes: ""
+    behavior:
+      retries: "Source retries 3x with backoff; endpoint must be idempotent"
+      idempotency: "Dedupe on event id"
+      ordering: "No ordering guarantee; design for out-of-order"
+      timeout: "Respond 202 within 3s; process async"
+    provenance: []              # allowed empty; later accepts decision/moment refs
+                                # e.g. {kind: decision, ref: DEC-2026-03-12-04,
+                                #       label: "Retry policy ratified", source: afc}
+
+  - id: step-dlq
+    seq: 15
+    system: sys-hub
+    title: Dead-letter unprocessable events
+    mode: async
+    cadence: event
+    phi: true
+    path: failure               # only visible with the failure overlay on
+    why: "Nothing inbound is ever dropped silently."
+    fr_refs: []
+    contract: {notes: "DLQ topic + alert hook"}
+    behavior: {retries: "n/a", notes: "Alert on-call after N events/hour"}
+
+# --- Edges -------------------------------------------------------------
+# kind: normal | failure | compensation
+edges:
+  - {from: step-receive, to: step-dlq, payload: pl-raw, kind: failure,
+     label: "validation failed"}
+
+# --- Payloads ----------------------------------------------------------
+# Field-level mapping WITH rationale — where business and technical meet.
+# The compiler warns on any field missing its rationale.
+payloads:
+  - id: pl-raw
+    name: Raw inbound event
+    format: JSON                # JSON | FHIR | HL7v2 | C-CDA | CSV | ...
+    fields:
+      - name: patient.identifier
+        maps_from: source.mrn
+        transform: "prefix with issuing system OID"
+        rationale: "Downstream matching requires globally unique identifiers"
+        fr_ref: FR-EX-001       # optional: ties the mapping to its requirement
+        phi: true
+
+# --- Trace samples -----------------------------------------------------
+# Optional but high-value: one sample record shown transforming hop by hop.
+trace_samples:
+  - label: "Typical inbound record"
+    hops:
+      - step: step-receive
+        note: "As received from the source"
+        payload:
+          source: {mrn: "12345"}
