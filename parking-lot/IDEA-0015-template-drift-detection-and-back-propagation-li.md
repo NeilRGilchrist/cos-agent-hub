@@ -1,7 +1,7 @@
 ---
 id: IDEA-0015
 title: Template drift detection and back-propagation lifecycle
-status: parked
+status: archived
 tags:
 - template
 - settings
@@ -10,13 +10,14 @@ tags:
 - developer-experience
 size: M
 created: '2026-05-29'
-updated: '2026-05-29'
-last_reviewed: '2026-05-29'
+updated: '2026-09-03'
+last_reviewed: '2026-09-03'
 promoted_to: null
 pattern: null
-archive_reason: null
+archive_reason: Superseded by IDEA-0034 (reverse-leg harvest); same drift/back-propagation
+  theme, more developed. Unique content (stack-aware starter settings.local.json)
+  folded into IDEA-0034.
 ---
-
 # IDEA-0015: Template drift detection and back-propagation lifecycle
 
 ## Description

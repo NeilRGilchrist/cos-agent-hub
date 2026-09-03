@@ -8,6 +8,8 @@ tags:
 - hub
 - workflow
 - drift
+- settings
+- back-propagation
 size: L
 created: '2026-09-03'
 updated: '2026-09-03'
@@ -57,3 +59,24 @@ Reduces cross-project maintenance from O(projects) manual re-fixes per defect to
 2. `harvest.py` and `bootstrap.py` both touch `template/`, which is human-approval-only per hub `CLAUDE.md`. Does harvest need its own entry in the "never edit without approval" list, or is the interactive confirm sufficient?
 3. Skills: `.claude/skills/` already syncs down via `INFRA_DIRS` (`.claude` is included). Does a project-tuned `SKILL.md` need the same core/overlay treatment, or is directory-level ownership (template-owned vs project-owned skill dirs) enough?
 4. Related: IDEA-0001 (archived — this resolves its deferred question #1), IDEA-0003 (reconcile-merged fetch ordering — any harvested `dispatch.py` change should land after that).
+
+## Realized instances & scope folded in (2026-09-03)
+
+- **Two manual reverse-leg harvests already prove the pain this automates:** the
+  `integration-viz` `compile.py` fixes (open-questions bold-tolerance + ADR-link
+  slug trimming) were fixed in `ns-sltc` and hand-ported into `template/` this
+  session; the document-maintenance skills port (`confl.py` + `hooks/` + the three
+  doc skills + the `confluence-doc-maintainer` agent) is the next one, still
+  pending. Both are exactly the O(projects) manual re-fix this idea removes.
+- **Absorbs IDEA-0015** (template drift detection + back-propagation lifecycle) —
+  same theme, earlier/thinner articulation; archived as superseded by this idea.
+  Its unique carry-over: ship a **stack-aware starter `settings.local.json`** in
+  the template (ai-hub-poc FR-0027 did that sync-forward by hand — a motivating
+  instance for the same machinery).
+- **Folds in the escalation D2 `--upgrade` settings.json decision.** The narrow
+  question — "does `--upgrade` overwrite / merge / drift-warn
+  `.claude/settings.json`?" — is a sub-decision of the core/overlay thesis above,
+  not a standalone policy. Forward-compatible interim: `--upgrade` **drift-warns,
+  does not overwrite** settings.json, until the core/overlay split (Phase 4)
+  lands. The document-maintenance port's "publish-gate registration in template
+  settings" task rides the same behavior, so decide it once, here.
