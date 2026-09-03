@@ -21,3 +21,13 @@ projects:
   created: '2026-05-03'
   stack: python
   private: false
+- name: nsh-eru-and-finrec-module
+  path: projects/prototypes/neilgilchrist-nsh-eru-and-finrec-module
+  created: '2026-06-04'
+  stack: node
+  private: false
+- name: ns-sltc-pathways-integration
+  path: projects/ns-sltc-pathways-integration
+  created: '2026-08-21'
+  stack: python
+  private: false
