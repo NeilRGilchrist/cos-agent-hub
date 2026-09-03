@@ -131,19 +131,37 @@ def _parse_acs(text: str) -> list[tuple[int, str]]:
 
 
 def _parse_open_questions(text: str) -> list[tuple[str, str]]:
+    """Return (question, default) pairs. Both the question and the default may
+    span several lines; continuation lines (indented, no new bullet) are folded
+    in, so a multi-line default is not truncated to its first line."""
     qs: list[tuple[str, str]] = []
-    pending_q: str | None = None
+    q_buf: list[str] = []
+    d_buf: list[str] = []
+    mode: str | None = None  # None | "q" | "d"
+
+    def flush() -> None:
+        if q_buf:
+            question = " ".join(" ".join(q_buf).split())
+            default = " ".join(" ".join(d_buf).split())
+            qs.append((question, default))
+
     for line in _section_lines(text, "Open questions"):
         mq = Q_LINE_PATTERN.match(line)
-        if mq:
-            pending_q = mq.group(1).strip()
-            continue
         md = DEFAULT_LINE_PATTERN.match(line)
-        if md and pending_q is not None:
-            qs.append((pending_q, md.group(1).strip()))
-            pending_q = None
-    if pending_q is not None:
-        qs.append((pending_q, ""))
+        if mq:
+            flush()
+            q_buf, d_buf, mode = [mq.group(1)], [], "q"
+        elif md:
+            d_buf, mode = [md.group(1)], "d"
+        else:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            if mode == "q":
+                q_buf.append(stripped)
+            elif mode == "d":
+                d_buf.append(stripped)
+    flush()
     return qs
 
 
