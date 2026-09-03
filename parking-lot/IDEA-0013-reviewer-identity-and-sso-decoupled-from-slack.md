@@ -1,7 +1,7 @@
 ---
 id: IDEA-0013
 title: Reviewer identity and SSO decoupled from Slack
-status: parked
+status: promoted
 tags:
 - human-review
 - auth
@@ -9,13 +9,12 @@ tags:
 - identity
 size: M
 created: '2026-05-29'
-updated: '2026-05-29'
-last_reviewed: '2026-05-29'
-promoted_to: null
+updated: '2026-07-28'
+last_reviewed: '2026-07-28'
+promoted_to: ai-hub-poc/FR-0052
 pattern: null
 archive_reason: null
 ---
-
 # IDEA-0013: Reviewer identity and SSO decoupled from Slack
 
 ## Description
