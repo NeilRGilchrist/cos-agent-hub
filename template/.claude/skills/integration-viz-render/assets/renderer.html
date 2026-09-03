@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Integration Spec</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#F2F5F4; --surface:#FFFFFF; --ink:#16272F; --ink-soft:#2B3E47;
+  --muted:#55676E; --line:#CBD6D3; --line-soft:#DEE6E4;
+  --accent:#0E7490; --accent-soft:#E0F0F4; --accent-band:#7CD4CB;
+  --fail:#C2410C; --fail-soft:#FDEDE3; --phi:#B45309; --phi-soft:#FEF3C7;
+  --ok:#15803D; --ok-soft:#E7F3EB;
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --sans:"IBM Plex Sans",-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{font-family:var(--sans);background:var(--paper);color:var(--ink);font-size:14px;line-height:1.5}
+.eyebrow{font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;font-weight:500}
+.mono{font-family:var(--mono)}
+
+/* ---------- title block ---------- */
+.titleblock{background:var(--ink);color:#F4F6F5;border-bottom:3px solid var(--accent)}
+.tb-grid{display:grid;grid-template-columns:minmax(280px,1.6fr) minmax(220px,1fr) auto}
+.tb-cell{padding:14px 18px;border-left:1px solid rgba(244,246,245,.16)}
+.tb-cell:first-child{border-left:none}
+.tb-cell .eyebrow{color:var(--accent-band);margin-bottom:4px}
+.tb-title{font-size:21px;font-weight:700;letter-spacing:-.01em;line-height:1.2}
+.tb-meta{font-family:var(--mono);font-size:11px;color:rgba(244,246,245,.65);margin-top:5px}
+.tb-purpose{font-size:13px;color:rgba(244,246,245,.85);margin-top:8px;max-width:60ch}
+.tb-field{margin-bottom:10px}
+.tb-field:last-child{margin-bottom:0}
+.tb-field p{font-size:12.5px;color:rgba(244,246,245,.88)}
+.trig-type{display:inline-block;font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;background:rgba(124,212,203,.16);color:var(--accent-band);border:1px solid rgba(124,212,203,.45);border-radius:3px;padding:1px 7px;margin-right:7px;vertical-align:1px}
+.tb-controls{display:flex;flex-direction:column;gap:10px;justify-content:center;min-width:190px}
+.ctl{display:flex;align-items:center;gap:8px;font-size:12.5px;color:rgba(244,246,245,.9)}
+.ctl input[type=checkbox]{accent-color:var(--fail);width:15px;height:15px}
+.ctl select{font-family:var(--mono);font-size:11px;background:var(--ink-soft);color:#F4F6F5;border:1px solid rgba(244,246,245,.3);border-radius:4px;padding:4px 6px;max-width:150px}
+.ctl button{font-family:var(--mono);font-size:11px;background:var(--accent);color:#fff;border:none;border-radius:4px;padding:5px 11px;cursor:pointer}
+.ctl button:hover{filter:brightness(1.12)}
+
+/* ---------- gap banner ---------- */
+.gapbar{background:var(--phi-soft);border-bottom:1px solid #EAD9A8;padding:6px 18px;font-size:12.5px;color:#7A4B0A}
+.gapbar button{background:none;border:none;color:#7A4B0A;font-weight:600;cursor:pointer;text-decoration:underline;font-size:12.5px}
+.gapbar ul{margin:6px 0 4px 20px}
+.gapbar li{margin:2px 0}
+.gapbar .mono{font-size:11.5px}
+
+/* ---------- layout ---------- */
+.main{display:flex;height:calc(100vh - 118px);min-height:420px}
+.canvas-col{flex:1.35;min-width:0;display:flex;flex-direction:column;border-right:1px solid var(--line)}
+.canvas-scroller-wrap{flex:1;display:flex;min-height:0}
+.lane-rail{width:138px;flex:none;background:var(--paper);border-right:1px solid var(--line);position:relative;z-index:2}
+.lane-label{position:absolute;left:0;width:100%;padding:10px 12px;border-bottom:1px dashed var(--line-soft)}
+.lane-label .sys-name{font-weight:600;font-size:12.5px;line-height:1.25}
+.lane-label .sys-kind{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-top:2px}
+.canvas-scroller{flex:1;overflow:auto;background:
+  repeating-linear-gradient(to right, transparent 0 215px, rgba(22,39,47,.035) 215px 216px),
+  var(--paper)}
+svg{display:block}
+.legend{flex:none;display:flex;flex-wrap:wrap;gap:14px;padding:7px 16px;border-top:1px solid var(--line);font-size:11px;color:var(--muted);background:var(--surface)}
+.legend span{display:inline-flex;align-items:center;gap:5px}
+.lg-swatch{width:22px;height:0;border-top:2px solid var(--muted)}
+.lg-dash{border-top-style:dashed}
+.lg-fail{border-color:var(--fail)}
+.lg-dot{border-top-style:dotted;border-top-width:3px}
+.lg-phi{width:auto;height:auto;border:none;font-family:var(--mono);font-size:9px;background:var(--phi-soft);color:var(--phi);padding:0 4px;border-radius:2px;font-weight:600}
+
+/* ---------- svg nodes ---------- */
+.node{cursor:pointer;outline:none}
+.node rect.body{fill:var(--surface);stroke:var(--line);stroke-width:1.4;rx:6}
+.node.async rect.body{stroke-dasharray:5 3}
+.node.failpath rect.body{stroke:var(--fail);fill:var(--fail-soft)}
+.node:hover rect.body,.node:focus-visible rect.body{stroke:var(--accent);stroke-width:1.8}
+.node.selected rect.body{stroke:var(--accent);stroke-width:2.4;filter:drop-shadow(0 2px 5px rgba(14,116,144,.28))}
+.node.tracing rect.body{stroke:var(--accent);stroke-width:2.6}
+@media (prefers-reduced-motion:no-preference){
+  .node.tracing rect.body{animation:pulse 1.4s ease-in-out infinite}
+  @keyframes pulse{0%,100%{stroke-opacity:1}50%{stroke-opacity:.35}}
+}
+.node .seq{font-family:var(--mono);font-size:10px;font-weight:600;fill:#fff}
+.node .seqbg{fill:var(--ink)}
+.node.failpath .seqbg{fill:var(--fail)}
+.node .title{font-size:11.5px;font-weight:600;fill:var(--ink)}
+.node .badge{font-family:var(--mono);font-size:8.5px;font-weight:600;letter-spacing:.06em}
+.edge path{fill:none;stroke:var(--ink-soft);stroke-width:1.5}
+.edge.failure path{stroke:var(--fail);stroke-dasharray:6 4}
+.edge.compensation path{stroke:var(--fail);stroke-dasharray:2 4;stroke-width:2}
+.edge-chip{cursor:pointer}
+.edge-chip rect{fill:var(--surface);stroke:var(--line);rx:3}
+.edge-chip:hover rect{stroke:var(--accent)}
+.edge-chip text{font-family:var(--mono);font-size:9.5px;fill:var(--muted)}
+.edge-lbl{font-family:var(--mono);font-size:9px;fill:var(--fail)}
+
+/* ---------- panel ---------- */
+.panel{flex:1;min-width:340px;max-width:560px;background:var(--surface);display:flex;flex-direction:column;overflow:hidden}
+.panel-empty{padding:40px 28px;color:var(--muted);font-size:13.5px;max-width:42ch}
+.panel-head{padding:14px 20px 0;border-bottom:1px solid var(--line-soft)}
+.panel-head .eyebrow{color:var(--muted)}
+.panel-title{font-size:16.5px;font-weight:700;margin:3px 0 6px;line-height:1.25}
+.badges{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.pill{font-family:var(--mono);font-size:9.5px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;padding:2px 8px;border-radius:3px;border:1px solid var(--line);color:var(--muted);background:var(--paper)}
+.pill.phi{background:var(--phi-soft);color:var(--phi);border-color:#EAD9A8}
+.pill.fail{background:var(--fail-soft);color:var(--fail);border-color:#F2C4A8}
+.pill.accent{background:var(--accent-soft);color:var(--accent);border-color:#BFDEE7}
+.tabs{display:flex;gap:2px}
+.tab{font-family:var(--mono);font-size:11px;letter-spacing:.05em;padding:7px 13px;border:none;background:none;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent}
+.tab:hover{color:var(--ink)}
+.tab.active{color:var(--accent);border-bottom-color:var(--accent);font-weight:600}
+.panel-body{flex:1;overflow-y:auto;padding:16px 20px 28px}
+.facet-summary{font-size:13px;color:var(--ink-soft);font-style:italic;border-left:3px solid var(--accent);padding:2px 0 2px 12px;margin-bottom:16px}
+.fr-card{border:1px solid var(--line);border-radius:7px;margin-bottom:14px;overflow:hidden}
+.fr-head{display:flex;align-items:center;gap:8px;padding:9px 13px;background:var(--paper);border-bottom:1px solid var(--line-soft)}
+.fr-id{font-family:var(--mono);font-size:10.5px;font-weight:600;color:var(--accent)}
+.fr-title{font-size:12.5px;font-weight:600;flex:1}
+.status{font-family:var(--mono);font-size:9px;letter-spacing:.08em;text-transform:uppercase;padding:1px 7px;border-radius:9px;background:var(--accent-soft);color:var(--accent)}
+.status.merged{background:var(--ok-soft);color:var(--ok)}
+.status.draft,.status.proposed{background:var(--phi-soft);color:var(--phi)}
+.status.blocked{background:var(--fail-soft);color:var(--fail)}
+.status.deprecated{background:var(--paper);color:var(--muted);text-decoration:line-through}
+.fr-body{padding:11px 13px}
+.fr-context{font-size:12.5px;color:var(--ink-soft);white-space:pre-line;margin-bottom:10px}
+.fr-sect{margin:2px 0 10px}
+.fr-sect .eyebrow{color:var(--muted);margin-bottom:3px}
+.ac-id{font-family:var(--mono);font-size:9px;font-weight:600;color:var(--accent);background:var(--accent-soft);border-radius:3px;padding:0 5px;margin-right:6px;white-space:nowrap}
+details.fr-fold{border:1px solid var(--line-soft);border-radius:6px;margin:8px 0;font-size:12.5px}
+details.fr-fold summary{cursor:pointer;padding:6px 11px;font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);user-select:none}
+details.fr-fold[open] summary{border-bottom:1px solid var(--line-soft)}
+details.fr-fold .fold-body{padding:8px 12px}
+.oos li{margin:3px 0 3px 16px;color:var(--ink-soft)}
+.oq{padding:6px 0;border-top:1px dashed var(--line-soft)}
+.oq:first-child{border-top:none}
+.oq .q{color:var(--ink)}
+.oq .dflt{margin-top:3px;color:var(--ink-soft)}
+.oq .dflt b{font-family:var(--mono);font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--phi);background:var(--phi-soft);border-radius:3px;padding:0 5px;margin-right:6px}
+.dep{font-family:var(--mono);font-size:10px;background:var(--paper);color:var(--ink-soft);border:1px solid var(--line);border-radius:3px;padding:2px 8px}
+.owns-list{font-family:var(--mono);font-size:10.5px;color:var(--muted);word-break:break-all}
+.owns-list span{display:inline-block;background:var(--paper);border:1px solid var(--line-soft);border-radius:3px;padding:1px 6px;margin:2px 4px 2px 0}
+.ac-head{margin:10px 0 6px;color:var(--muted)}
+.ac{display:flex;gap:8px;align-items:flex-start;padding:4px 0;font-size:12.5px}
+.ac input{margin-top:2.5px;accent-color:var(--accent)}
+.ac label{cursor:pointer}
+.adr-row{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.adr{font-family:var(--mono);font-size:10px;background:var(--accent-soft);color:var(--accent);border:1px solid #BFDEE7;border-radius:3px;padding:2px 8px;cursor:help}
+.adr.superseded{background:var(--paper);color:var(--muted);border-color:var(--line);text-decoration:line-through}
+.ac-adr{font-family:var(--mono);font-size:8.5px;font-weight:600;color:var(--accent);border:1px solid #BFDEE7;background:var(--accent-soft);border-radius:3px;padding:0 4px;margin-left:6px;cursor:help;white-space:nowrap}
+.kv{display:grid;grid-template-columns:110px 1fr;gap:0;border:1px solid var(--line);border-radius:7px;overflow:hidden;margin-bottom:16px}
+.kv>div{padding:8px 12px;border-top:1px solid var(--line-soft);font-size:12.5px}
+.kv>div:nth-child(-n+2){border-top:none}
+.kv .k{font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);background:var(--paper);font-weight:500;padding-top:10px}
+.kv .v{word-break:break-word}
+.kv .v code{font-family:var(--mono);font-size:11.5px;background:var(--paper);padding:1px 5px;border-radius:3px}
+.pl-head{display:flex;align-items:baseline;gap:8px;margin:4px 0 8px}
+.pl-name{font-weight:600;font-size:13px}
+.pl-fmt{font-family:var(--mono);font-size:10px;color:var(--muted)}
+table.map{width:100%;border-collapse:collapse;border:1px solid var(--line);border-radius:7px;font-size:12px;margin-bottom:8px}
+table.map th{font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);text-align:left;padding:7px 10px;background:var(--paper);border-bottom:1px solid var(--line);font-weight:500}
+table.map td{padding:7px 10px;border-bottom:1px solid var(--line-soft);vertical-align:top}
+table.map tr.frow{cursor:pointer}
+table.map tr.frow:hover td{background:#F7FAF9}
+table.map .fname{font-family:var(--mono);font-size:11px;font-weight:500;white-space:nowrap}
+table.map .from,table.map .xform{font-family:var(--mono);font-size:10.5px;color:var(--ink-soft)}
+.phi-dot{display:inline-block;font-family:var(--mono);font-size:8px;font-weight:700;background:var(--phi-soft);color:var(--phi);padding:0 4px;border-radius:2px;margin-left:6px;vertical-align:1px}
+tr.rationale td{background:var(--accent-soft);border-left:3px solid var(--accent);font-size:12px;color:var(--ink-soft);padding:8px 12px}
+tr.rationale .fr-id{margin-left:8px}
+.map-hint{font-size:11px;color:var(--muted);margin-bottom:14px}
+.empty-state{border:1.5px dashed var(--line);border-radius:7px;padding:18px;font-size:12.5px;color:var(--muted);text-align:center}
+.prov-item{display:flex;gap:10px;border:1px solid var(--line);border-radius:7px;padding:10px 13px;margin-bottom:10px;font-size:12.5px}
+.prov-kind{font-family:var(--mono);font-size:9px;letter-spacing:.08em;text-transform:uppercase;background:var(--paper);border:1px solid var(--line);border-radius:3px;padding:1px 6px;height:fit-content;color:var(--muted)}
+.prov-ref{font-family:var(--mono);font-size:10.5px;color:var(--accent)}
+
+/* ---------- trace ---------- */
+.tracebar{display:flex;align-items:center;gap:12px;background:var(--accent);color:#fff;padding:7px 16px;font-size:12.5px}
+.tracebar .mono{font-size:11px}
+.tracebar button{font-family:var(--mono);font-size:11px;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.4);color:#fff;border-radius:4px;padding:3px 10px;cursor:pointer}
+.tracebar button:disabled{opacity:.4;cursor:default}
+.tracebar .exit{margin-left:auto}
+table.diff{width:100%;border-collapse:collapse;font-size:11.5px;border:1px solid var(--line);margin-top:10px}
+table.diff td{padding:5px 10px;border-bottom:1px solid var(--line-soft);font-family:var(--mono)}
+table.diff td.path{color:var(--muted);font-size:10.5px;white-space:nowrap}
+table.diff tr.added td{background:var(--ok-soft);border-left:3px solid var(--ok)}
+table.diff tr.changed td{background:var(--phi-soft);border-left:3px solid var(--phi)}
+.diff-key{display:flex;gap:14px;font-size:10.5px;color:var(--muted);margin-top:8px}
+.diff-key i{width:10px;height:10px;border-radius:2px;display:inline-block;margin-right:4px;vertical-align:-1px}
+.trace-note{font-size:12.5px;font-style:italic;color:var(--ink-soft);border-left:3px solid var(--accent);padding-left:12px;margin:4px 0 6px}
+
+@media (max-width:920px){
+  .main{flex-direction:column;height:auto}
+  .canvas-col{border-right:none;border-bottom:1px solid var(--line)}
+  .canvas-scroller-wrap{height:46vh}
+  .panel{max-width:none;min-height:50vh}
+  .tb-grid{grid-template-columns:1fr}
+  .tb-cell{border-left:none;border-top:1px solid rgba(244,246,245,.16)}
+}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+</style>
+</head>
+<body>
+
+<script id="integration-spec" type="application/json">__SPEC_JSON__</script>
+
+<header class="titleblock" id="titleblock"></header>
+<div id="gapbar"></div>
+<div id="tracebar"></div>
+<div class="main">
+  <div class="canvas-col">
+    <div class="canvas-scroller-wrap">
+      <div class="lane-rail" id="rail"></div>
+      <div class="canvas-scroller" id="scroller"></div>
+    </div>
+    <div class="legend">
+      <span><span class="lg-swatch"></span>sync step</span>
+      <span><span class="lg-swatch lg-dash"></span>async step</span>
+      <span><span class="lg-swatch lg-fail lg-dash"></span>failure edge</span>
+      <span><span class="lg-swatch lg-fail lg-dot"></span>compensation</span>
+      <span><span class="lg-phi">PHI</span>compliance-sensitive</span>
+      <span style="margin-left:auto">click a payload chip on an edge to inspect its mapping</span>
+    </div>
+  </div>
+  <aside class="panel" id="panel"></aside>
+</div>
+
+<script>
+"use strict";
+/* ================================================================
+   Integration Viz renderer — reads #integration-spec, draws swimlanes,
+   drives the detail panel, failure overlay, and trace mode.
+   ================================================================ */
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+const LANE_H = 116, NODE_W = 172, NODE_H = 62, COL_W = 216, PAD_X = 30, PAD_Y = 26;
+
+let SPEC = null;
+const state = {
+  selectedStep: null,      // step id
+  selectedPayload: null,   // payload id (edge-chip inspection)
+  activeTab: "why",
+  failureOverlay: false,
+  trace: null,             // {index, hop}
+  acChecks: new Map(),     // "stepId:frId:i" -> bool (session-only implementation tracking)
+  gapsOpen: false,
+};
+
+/* ---------------- boot ---------------- */
+function boot() {
+  const raw = document.getElementById("integration-spec").textContent.trim();
+  if (!raw || raw.startsWith("__")) {
+    document.body.innerHTML = "<div style='padding:40px;font-family:monospace'>No spec injected. Replace the placeholder in the #integration-spec script tag with compiled spec.json content.</div>";
+    return;
+  }
+  try { SPEC = JSON.parse(raw); }
+  catch (e) {
+    document.body.innerHTML = "<div style='padding:40px;font-family:monospace'>Spec failed to parse: " + esc(e.message) + "</div>";
+    return;
+  }
+  document.title = (SPEC.meta.title || "Integration") + " — Integration Spec";
+  renderTitleblock();
+  renderGapbar();
+  renderTracebar();
+  renderCanvas();
+  renderPanel();
+}
+
+/* ---------------- helpers ---------------- */
+function esc(s) {
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+function el(tag, attrs, ...children) {
+  const isSvg = ["svg","g","rect","path","text","tspan","defs","marker","title"].includes(tag);
+  const node = isSvg ? document.createElementNS(SVG_NS, tag) : document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (k === "text") node.textContent = v;
+    else if (k.startsWith("on")) node.addEventListener(k.slice(2), v);
+    else node.setAttribute(k, v);
+  }
+  for (const c of children) if (c != null) node.append(c);
+  return node;
+}
+const stepById = id => SPEC.steps.find(s => s.id === id);
+const payloadById = id => SPEC.payloads.find(p => p.id === id);
+const systemById = id => SPEC.systems.find(s => s.id === id);
+
+function visibleSteps() {
+  return SPEC.steps.filter(s => state.failureOverlay || s.path !== "failure");
+}
+
+/* ---------------- title block ---------------- */
+function renderTitleblock() {
+  const m = SPEC.meta;
+  const trig = m.trigger || {};
+  const traces = SPEC.traces || [];
+  const host = document.getElementById("titleblock");
+  host.innerHTML = `
+  <div class="tb-grid">
+    <div class="tb-cell">
+      <div class="eyebrow">Integration Specification</div>
+      <div class="tb-title">${esc(m.title)}</div>
+      <div class="tb-meta">${esc(m.id)} · rev ${esc(m.version)} · compiled ${esc((m.compiled_at||"").slice(0,10))}</div>
+      <div class="tb-purpose">${esc(m.purpose)}</div>
+    </div>
+    <div class="tb-cell">
+      <div class="tb-field">
+        <div class="eyebrow">Trigger</div>
+        <p><span class="trig-type">${esc(trig.type||"—")}</span>${esc(trig.detail||"")}</p>
+      </div>
+      <div class="tb-field">
+        <div class="eyebrow">Success criterion</div>
+        <p>${esc(m.success_criterion)}</p>
+      </div>
+    </div>
+    <div class="tb-cell tb-controls">
+      <label class="ctl"><input type="checkbox" id="failToggle" ${state.failureOverlay?"checked":""}> Failure overlay</label>
+      ${traces.length ? `<div class="ctl">
+        <select id="traceSelect">${traces.map((t,i)=>`<option value="${i}">${esc(t.label)}</option>`).join("")}</select>
+        <button id="traceStart">Trace ▷</button>
+      </div>` : ""}
+    </div>
+  </div>`;
+  host.querySelector("#failToggle").addEventListener("change", e => {
+    state.failureOverlay = e.target.checked;
+    renderCanvas();
+  });
+  const start = host.querySelector("#traceStart");
+  if (start) start.addEventListener("click", () => {
+    startTrace(parseInt(host.querySelector("#traceSelect").value, 10));
+  });
+}
+
+/* ---------------- gap banner ---------------- */
+function renderGapbar() {
+  const g = SPEC.gaps || {};
+  const items = [];
+  for (const fr of g.unreferenced_frs || []) items.push(`<span class="mono">${esc(fr)}</span> is tagged to this integration but no step references it`);
+  for (const s of g.steps_without_frs || []) items.push(`step <span class="mono">${esc(s)}</span> cites no FR`);
+  for (const f of g.fields_missing_rationale || []) items.push(`mapping <span class="mono">${esc(f)}</span> has no rationale`);
+  for (const w of g.warnings || []) items.push(esc(w));
+  const host = document.getElementById("gapbar");
+  if (!items.length) { host.innerHTML = ""; return; }
+  host.innerHTML = `<div class="gapbar">⚠ ${items.length} coverage finding${items.length>1?"s":""} from compile —
+    <button id="gapToggle">${state.gapsOpen ? "hide" : "view"}</button>
+    ${state.gapsOpen ? `<ul>${items.map(i=>`<li>${i}</li>`).join("")}</ul>` : ""}</div>`;
+  host.querySelector("#gapToggle").addEventListener("click", () => {
+    state.gapsOpen = !state.gapsOpen; renderGapbar();
+  });
+}
+
+/* ---------------- canvas ---------------- */
+function layout() {
+  const steps = visibleSteps().slice().sort((a,b) => a.seq - b.seq);
+  const pos = new Map();
+  steps.forEach((s, i) => {
+    const laneIdx = SPEC.systems.findIndex(sys => sys.id === s.system);
+    pos.set(s.id, {
+      x: PAD_X + i * COL_W,
+      y: PAD_Y + laneIdx * LANE_H + (LANE_H - NODE_H) / 2,
+      step: s,
+    });
+  });
+  return { steps, pos,
+    width: PAD_X * 2 + Math.max(steps.length, 1) * COL_W,
+    height: PAD_Y * 2 + SPEC.systems.length * LANE_H };
+}
+
+function renderCanvas() {
+  const { steps, pos, width, height } = layout();
+
+  // lane rail
+  const rail = document.getElementById("rail");
+  rail.innerHTML = "";
+  SPEC.systems.forEach((sys, i) => {
+    rail.append(el("div", { class: "lane-label",
+      style: `top:${PAD_Y + i*LANE_H}px;height:${LANE_H}px` },
+      el("div", { class: "sys-name", text: sys.name }),
+      el("div", { class: "sys-kind", text: sys.kind || "" })));
+  });
+
+  const svg = el("svg", { width, height, viewBox: `0 0 ${width} ${height}`, role: "group",
+    "aria-label": "Integration flow diagram" });
+
+  // defs: arrowheads
+  const defs = el("defs");
+  for (const [id, color] of [["arr", "#2B3E47"], ["arrFail", "#C2410C"]]) {
+    const mk = el("marker", { id, markerWidth: 9, markerHeight: 7, refX: 8, refY: 3.5, orient: "auto" });
+    mk.append(el("path", { d: "M0,0 L9,3.5 L0,7 Z", fill: color }));
+    defs.append(mk);
+  }
+  svg.append(defs);
+
+  // lane separators
+  for (let i = 1; i < SPEC.systems.length; i++) {
+    svg.append(el("path", { d: `M0 ${PAD_Y+i*LANE_H} H ${width}`,
+      stroke: "var(--line-soft)", "stroke-dasharray": "4 5", fill: "none" }));
+  }
+
+  // edges (under nodes)
+  for (const edge of SPEC.edges) {
+    const a = pos.get(edge.from), b = pos.get(edge.to);
+    if (!a || !b) continue;                                   // endpoint hidden
+    if (edge.kind !== "normal" && !state.failureOverlay) continue;
+    svg.append(renderEdge(edge, a, b));
+  }
+
+  // nodes
+  for (const s of steps) svg.append(renderNode(s, pos.get(s.id)));
+
+  const scroller = document.getElementById("scroller");
+  scroller.innerHTML = "";
+  scroller.append(svg);
+}
+
+function renderEdge(edge, a, b) {
+  const g = el("g", { class: "edge " + edge.kind });
+  const backward = b.x <= a.x;
+  let d, mx, my;
+  if (!backward) {
+    const sx = a.x + NODE_W, sy = a.y + NODE_H/2, tx = b.x, ty = b.y + NODE_H/2;
+    const c = Math.min(70, (tx - sx) / 2);
+    d = `M ${sx} ${sy} C ${sx+c} ${sy}, ${tx-c} ${ty}, ${tx} ${ty}`;
+    mx = (sx + tx) / 2; my = (sy + ty) / 2 + (sy === ty ? 0 : 4);
+  } else {                                                    // loop back: dip below
+    const sx = a.x + NODE_W/2, sy = a.y + NODE_H, tx = b.x + NODE_W/2, ty = b.y + NODE_H;
+    const dip = Math.max(sy, ty) + 46;
+    d = `M ${sx} ${sy} C ${sx} ${dip}, ${tx} ${dip}, ${tx} ${ty+4}`;
+    mx = (sx + tx) / 2; my = dip - 8;
+  }
+  g.append(el("path", { d, "marker-end": edge.kind === "normal" ? "url(#arr)" : "url(#arrFail)" }));
+
+  // payload chip at midpoint (clickable -> payload inspector)
+  if (edge.payload_ref) {
+    const p = payloadById(edge.payload_ref);
+    const label = p ? p.name : edge.payload_ref;
+    const w = label.length * 6.1 + 14;
+    const chip = el("g", { class: "edge-chip", role: "button", tabindex: 0,
+      onclick: () => selectPayload(edge.payload_ref),
+      onkeydown: e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectPayload(edge.payload_ref); } } });
+    chip.append(el("title", { text: "Inspect payload mapping" }));
+    chip.append(el("rect", { x: mx - w/2, y: my - 9, width: w, height: 16, rx: 3 }));
+    chip.append(el("text", { x: mx, y: my + 3, "text-anchor": "middle", text: label }));
+    g.append(chip);
+  }
+  if (edge.label) {
+    g.append(el("text", { class: "edge-lbl", x: mx, y: my - (edge.payload_ref ? 14 : 4),
+      "text-anchor": "middle", text: edge.label }));
+  }
+  return g;
+}
+
+function wrapTitle(text, maxChars) {
+  const words = String(text).split(/\s+/); const lines = [""];
+  for (const w of words) {
+    if ((lines[lines.length-1] + " " + w).trim().length > maxChars && lines[lines.length-1]) lines.push(w);
+    else lines[lines.length-1] = (lines[lines.length-1] + " " + w).trim();
+    if (lines.length === 2 && lines[1].length > maxChars) { lines[1] = lines[1].slice(0, maxChars-1) + "…"; break; }
+  }
+  return lines.slice(0, 2);
+}
+
+function renderNode(step, p) {
+  const cls = ["node", step.mode === "async" ? "async" : "",
+               step.path === "failure" ? "failpath" : "",
+               state.selectedStep === step.id && !state.selectedPayload ? "selected" : "",
+               state.trace && state.trace.hop.step === step.id ? "tracing" : ""].join(" ").trim();
+  const g = el("g", { class: cls, tabindex: 0, role: "button",
+    "aria-label": `Step ${step.seq}: ${step.title}`,
+    onclick: () => selectStep(step.id),
+    onkeydown: e => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectStep(step.id); }
+      if (e.key === "ArrowRight" || e.key === "ArrowLeft") { e.preventDefault(); moveSelection(e.key === "ArrowRight" ? 1 : -1); }
+    } });
+  g.append(el("rect", { class: "body", x: p.x, y: p.y, width: NODE_W, height: NODE_H, rx: 6 }));
+  g.append(el("rect", { class: "seqbg", x: p.x, y: p.y, width: 26, height: 17, rx: 4 }));
+  g.append(el("text", { class: "seq", x: p.x + 13, y: p.y + 12.5, "text-anchor": "middle", text: step.seq }));
+  const lines = wrapTitle(step.title, 24);
+  const t = el("text", { class: "title", x: p.x + 10, y: p.y + 31 });
+  lines.forEach((ln, i) => t.append(el("tspan", { x: p.x + 10, dy: i ? 13 : 0, text: ln })));
+  g.append(t);
+  // badge row
+  let bx = p.x + 10;
+  const cad = { event: "EVT", batch: "BATCH", schedule: "SCHED", manual: "MAN" }[step.cadence] || step.cadence.toUpperCase();
+  g.append(el("text", { class: "badge", x: bx, y: p.y + NODE_H - 8, fill: "var(--muted)", text: cad }));
+  bx += cad.length * 6.4 + 10;
+  g.append(el("text", { class: "badge", x: bx, y: p.y + NODE_H - 8, fill: "var(--muted)",
+    text: step.mode.toUpperCase() }));
+  if (step.phi) {
+    g.append(el("text", { class: "badge", x: p.x + NODE_W - 10, y: p.y + NODE_H - 8,
+      "text-anchor": "end", fill: "var(--phi)", text: "PHI" }));
+  }
+  return g;
+}
+
+function moveSelection(dir) {
+  const steps = visibleSteps().slice().sort((a,b) => a.seq - b.seq);
+  const i = steps.findIndex(s => s.id === state.selectedStep);
+  const next = steps[Math.min(steps.length - 1, Math.max(0, (i < 0 ? 0 : i + dir)))];
+  if (next) { selectStep(next.id); focusNode(next.id); }
+}
+function focusNode(id) {
+  const nodes = document.querySelectorAll(".node");
+  const steps = visibleSteps().slice().sort((a,b) => a.seq - b.seq);
+  const idx = steps.findIndex(s => s.id === id);
+  if (idx >= 0 && nodes[idx]) nodes[idx].focus();
+}
+
+function selectStep(id) {
+  if (state.trace) exitTrace(false);
+  state.selectedStep = id;
+  state.selectedPayload = null;
+  renderCanvas();
+  renderPanel();
+}
+function selectPayload(id) {
+  if (state.trace) exitTrace(false);
+  state.selectedPayload = id;
+  renderCanvas();
+  renderPanel();
+}
+
+/* ---------------- panel ---------------- */
+function renderPanel() {
+  const panel = document.getElementById("panel");
+  if (state.trace) { renderTracePanel(panel); return; }
+  if (state.selectedPayload) { renderPayloadPanel(panel, payloadById(state.selectedPayload)); return; }
+  const step = stepById(state.selectedStep);
+  if (!step) {
+    panel.innerHTML = `<div class="panel-empty"><div class="eyebrow" style="margin-bottom:8px">Detail panel</div>
+      Select a step in the flow to see why it exists, the contract to implement, and the behavior it must guarantee.
+      Payload chips on edges open the field-level mapping.</div>`;
+    return;
+  }
+  const sys = systemById(step.system);
+  const provCount = (step.provenance || []).length;
+  const tabs = [["why","Why"],["contract","Contract"],["behavior","Behavior"],["provenance",`Provenance${provCount ? " ("+provCount+")" : ""}`]];
+  panel.innerHTML = `
+    <div class="panel-head">
+      <div class="eyebrow">Step ${esc(step.seq)} · ${esc(sys ? sys.name : step.system)}</div>
+      <div class="panel-title">${esc(step.title)}</div>
+      <div class="badges">
+        <span class="pill accent">${esc(step.mode)}</span>
+        <span class="pill">${esc(step.cadence)}</span>
+        ${step.phi ? '<span class="pill phi">PHI</span>' : ""}
+        ${step.path === "failure" ? '<span class="pill fail">failure path</span>' : ""}
+      </div>
+      <div class="tabs">${tabs.map(([k,l]) =>
+        `<button class="tab ${state.activeTab===k?"active":""}" data-tab="${k}">${l}</button>`).join("")}</div>
+    </div>
+    <div class="panel-body" id="panelBody"></div>`;
+  panel.querySelectorAll(".tab").forEach(b => b.addEventListener("click", () => {
+    state.activeTab = b.dataset.tab; renderPanel();
+  }));
+  const body = panel.querySelector("#panelBody");
+  ({ why: renderWhy, contract: renderContract, behavior: renderBehavior, provenance: renderProvenance })[state.activeTab](body, step);
+}
+
+function renderWhy(host, step) {
+  let html = "";
+  if (step.why && step.why.summary) html += `<div class="facet-summary">${esc(step.why.summary)}</div>`;
+  const frs = (step.why && step.why.frs) || [];
+  if (!frs.length) {
+    html += `<div class="empty-state">No FR anchors this step. If it's happy-path, that's a coverage gap — the requirement either doesn't exist yet or isn't linked in flow.yaml.</div>`;
+  }
+  for (const fr of frs) {
+    const why = fr.why != null ? fr.why : fr.context;          // legacy alias
+    const acs = (fr.acceptance_criteria || []).map(a =>
+      typeof a === "string" ? { id: null, text: a } : a);       // legacy string ACs
+    const oos = fr.out_of_scope || [];
+    const oqs = fr.open_questions || [];
+    html += `<div class="fr-card">
+      <div class="fr-head">
+        <span class="fr-id">${esc(fr.id)}</span>
+        <span class="fr-title">${esc(fr.title)}</span>
+        ${fr.status ? `<span class="status ${esc(fr.status.toLowerCase())}">${esc(fr.status)}</span>` : ""}
+      </div>
+      <div class="fr-body">
+        ${why ? `<div class="fr-sect"><div class="eyebrow">Why</div><div class="fr-context">${esc(why)}</div></div>` : ""}
+        ${fr.what ? `<div class="fr-sect"><div class="eyebrow">What</div><div class="fr-context">${esc(fr.what)}</div></div>` : ""}
+        ${acs.length ? `<div class="eyebrow ac-head">Acceptance criteria</div>` +
+          acs.map((ac, i) => {
+            const key = `${step.id}:${fr.id}:${ac.id || i}`;
+            const acAdrs = ac.id ? (fr.adrs || []).filter(a => (a.ac_refs || []).includes(ac.id)) : [];
+            return `<div class="ac"><input type="checkbox" id="ac-${esc(key)}" data-ac="${esc(key)}" ${state.acChecks.get(key)?"checked":""}>
+              <label for="ac-${esc(key)}">${ac.id ? `<span class="ac-id">${esc(ac.id)}</span>` : ""}${esc(ac.text)}${
+                acAdrs.map(a => `<span class="ac-adr" title="Constrained by ${esc(a.id)}: ${esc(a.summary || a.title)}">${esc(a.id)}</span>`).join("")
+              }</label></div>`;
+          }).join("") : ""}
+        ${oos.length ? `<details class="fr-fold"><summary>Out of scope (${oos.length})</summary>
+          <ul class="fold-body oos">${oos.map(o => `<li>${esc(o)}</li>`).join("")}</ul></details>` : ""}
+        ${oqs.length ? `<details class="fr-fold"><summary>Open questions (${oqs.length})</summary>
+          <div class="fold-body">${oqs.map(q => `<div class="oq"><div class="q">${esc(q.q)}</div>
+            ${q.default ? `<div class="dflt"><b>ships by default</b>${esc(q.default)}</div>` : ""}</div>`).join("")}</div></details>` : ""}
+        ${fr.notes ? `<details class="fr-fold"><summary>Notes</summary><div class="fold-body fr-context">${esc(fr.notes)}</div></details>` : ""}
+        ${(fr.owns||[]).length ? `<details class="fr-fold"><summary>Write footprint</summary>
+          <div class="fold-body owns-list">${fr.owns.map(g => `<span>${esc(g)}</span>`).join("")}</div></details>` : ""}
+        ${((fr.depends_on||[]).length || (fr.adrs||[]).length) ? `<div class="adr-row">` +
+          (fr.depends_on||[]).map(d => `<span class="dep" title="FR dependency">↳ ${esc(d)}</span>`).join("") +
+          (fr.adrs||[]).map(a => {
+            const sup = a.superseded_by ? `SUPERSEDED by ${a.superseded_by} — ` : "";
+            return `<span class="adr ${a.superseded_by ? "superseded" : ""}" title="${esc(sup + (a.status?a.status+" — ":"") + (a.summary||a.title))}">${esc(a.id)} · ${esc(a.title)}</span>`;
+          }).join("") + `</div>` : ""}
+      </div>
+    </div>`;
+  }
+  host.innerHTML = html;
+  host.querySelectorAll("[data-ac]").forEach(cb => cb.addEventListener("change", e => {
+    state.acChecks.set(e.target.dataset.ac, e.target.checked);
+  }));
+}
+
+function kvGrid(entries) {
+  const rows = entries.filter(([,v]) => v != null && v !== "");
+  if (!rows.length) return "";
+  return `<div class="kv">` + rows.map(([k,v]) =>
+    `<div class="k">${esc(k)}</div><div class="v">${v}</div>`).join("") + `</div>`;
+}
+
+function renderContract(host, step) {
+  const c = step.contract || {};
+  let html = kvGrid([
+    ["Protocol", esc(c.protocol)],
+    ["Endpoint", c.endpoint ? `<code>${esc(c.endpoint)}</code>` : ""],
+    ["Method", c.method ? `<code>${esc(c.method)}</code>` : ""],
+    ["Auth", esc(c.auth)],
+    ["Notes", esc(c.notes)],
+  ]);
+  if (c.payload_ref) {
+    const p = payloadById(c.payload_ref);
+    if (p) html += payloadHtml(p);
+  }
+  host.innerHTML = html || `<div class="empty-state">No contract details recorded for this step.</div>`;
+  bindRationaleRows(host);
+}
+
+function payloadHtml(p) {
+  const fields = p.fields || [];
+  let html = `<div class="pl-head"><span class="pl-name">${esc(p.name)}</span><span class="pl-fmt">${esc(p.id)} · ${esc(p.format)}</span></div>`;
+  if (!fields.length) return html + `<div class="empty-state">No field mappings defined for this payload.</div>`;
+  html += `<table class="map"><thead><tr><th>Field</th><th>Maps from</th><th>Transform</th></tr></thead><tbody>`;
+  fields.forEach((f, i) => {
+    html += `<tr class="frow" data-f="${i}" title="Show mapping rationale">
+      <td class="fname">${esc(f.name)}${f.phi ? '<span class="phi-dot">PHI</span>' : ""}</td>
+      <td class="from">${esc(f.maps_from || "—")}</td>
+      <td class="xform">${esc(f.transform || "passthrough")}</td></tr>`;
+    html += `<tr class="rationale" data-r="${i}" hidden><td colspan="3">
+      ${f.rationale ? "<b>Why:</b> " + esc(f.rationale) : "<i>No rationale recorded — coverage gap.</i>"}
+      ${f.fr_ref ? `<span class="fr-id">${esc(f.fr_ref)}</span>` : ""}</td></tr>`;
+  });
+  html += `</tbody></table><div class="map-hint">Click a row for the mapping rationale — the business reason each field maps the way it does.</div>`;
+  return html;
+}
+function bindRationaleRows(host) {
+  host.querySelectorAll("tr.frow").forEach(row => row.addEventListener("click", () => {
+    const r = host.querySelector(`tr.rationale[data-r="${row.dataset.f}"]`);
+    if (r) r.hidden = !r.hidden;
+  }));
+}
+
+function renderBehavior(host, step) {
+  const b = step.behavior || {};
+  const html = kvGrid([
+    ["Retries", esc(b.retries)],
+    ["Idempotency", esc(b.idempotency)],
+    ["Ordering", esc(b.ordering)],
+    ["Timeout", esc(b.timeout)],
+    ["Notes", esc(b.notes)],
+  ]);
+  host.innerHTML = html || `<div class="empty-state">No behavioral requirements recorded. If this step has retry, ordering, or idempotency expectations, they belong in flow.yaml or an FR's acceptance criteria.</div>`;
+}
+
+function renderProvenance(host, step) {
+  const prov = step.provenance || [];
+  if (!prov.length) {
+    host.innerHTML = `<div class="empty-state">No captured context linked yet.<br><br>
+      This slot accepts references to ratified decisions or transcript moments from passive-capture pipelines.
+      When populated, the why behind this step stops being documentation and becomes provenance.</div>`;
+    return;
+  }
+  host.innerHTML = prov.map(pv => `<div class="prov-item">
+    <span class="prov-kind">${esc(pv.kind || "ref")}</span>
+    <div><div>${esc(pv.label || "")}</div>
+    <div class="prov-ref">${esc(pv.ref || "")}${pv.source ? " · " + esc(pv.source) : ""}</div></div>
+  </div>`).join("");
+}
+
+function renderPayloadPanel(panel, p) {
+  if (!p) { state.selectedPayload = null; renderPanel(); return; }
+  panel.innerHTML = `
+    <div class="panel-head">
+      <div class="eyebrow">Payload inspector</div>
+      <div class="panel-title">${esc(p.name)}</div>
+      <div class="badges"><span class="pill accent">${esc(p.format)}</span><span class="pill">${esc(p.id)}</span></div>
+      <div class="tabs"><button class="tab active">Field mapping</button></div>
+    </div>
+    <div class="panel-body">${payloadHtml(p)}
+      <div class="map-hint" style="margin-top:6px">Selected from an edge chip — click any step to return to step detail.</div></div>`;
+  bindRationaleRows(panel);
+}
+
+/* ---------------- trace mode ---------------- */
+function startTrace(traceIdx) {
+  const trace = (SPEC.traces || [])[traceIdx];
+  if (!trace || !trace.hops.length) return;
+  state.trace = { traceIdx, index: 0, hop: trace.hops[0] };
+  state.selectedPayload = null;
+  renderTracebar(); renderCanvas(); renderPanel();
+}
+function setHop(delta) {
+  const trace = SPEC.traces[state.trace.traceIdx];
+  const i = Math.min(trace.hops.length - 1, Math.max(0, state.trace.index + delta));
+  state.trace.index = i; state.trace.hop = trace.hops[i];
+  renderTracebar(); renderCanvas(); renderPanel();
+}
+function exitTrace(rerender = true) {
+  state.trace = null;
+  renderTracebar();
+  if (rerender) { renderCanvas(); renderPanel(); }
+}
+function renderTracebar() {
+  const host = document.getElementById("tracebar");
+  if (!state.trace) { host.innerHTML = ""; return; }
+  const trace = SPEC.traces[state.trace.traceIdx];
+  const step = stepById(state.trace.hop.step);
+  host.innerHTML = `<div class="tracebar">
+    <span class="eyebrow" style="color:rgba(255,255,255,.8)">Trace</span>
+    <span>${esc(trace.label)}</span>
+    <span class="mono">hop ${state.trace.index+1}/${trace.hops.length} — ${esc(step ? step.title : state.trace.hop.step)}</span>
+    <button id="tPrev" ${state.trace.index===0?"disabled":""}>◀ prev</button>
+    <button id="tNext" ${state.trace.index===trace.hops.length-1?"disabled":""}>next ▶</button>
+    <button id="tExit" class="exit">exit trace</button>
+  </div>`;
+  host.querySelector("#tPrev").addEventListener("click", () => setHop(-1));
+  host.querySelector("#tNext").addEventListener("click", () => setHop(1));
+  host.querySelector("#tExit").addEventListener("click", () => exitTrace());
+}
+
+function flatten(obj, prefix = "", out = {}) {
+  if (obj === null || typeof obj !== "object" || Array.isArray(obj)) {
+    out[prefix || "(value)"] = JSON.stringify(obj); return out;
+  }
+  for (const [k, v] of Object.entries(obj)) flatten(v, prefix ? prefix + "." + k : k, out);
+  return out;
+}
+
+function renderTracePanel(panel) {
+  const trace = SPEC.traces[state.trace.traceIdx];
+  const hop = state.trace.hop;
+  const step = stepById(hop.step);
+  const cur = flatten(hop.payload || {});
+  const prev = state.trace.index > 0 ? flatten(trace.hops[state.trace.index - 1].payload || {}) : null;
+  let rows = "";
+  for (const [path, val] of Object.entries(cur)) {
+    let cls = "";
+    if (prev) {
+      if (!(path in prev)) cls = "added";
+      else if (prev[path] !== val) cls = "changed";
+    }
+    rows += `<tr class="${cls}"><td class="path">${esc(path)}</td><td>${esc(val)}</td></tr>`;
+  }
+  const removed = prev ? Object.keys(prev).filter(k => !(k in cur)) : [];
+  panel.innerHTML = `
+    <div class="panel-head">
+      <div class="eyebrow">Trace · hop ${state.trace.index+1} of ${trace.hops.length}</div>
+      <div class="panel-title">${esc(step ? step.title : hop.step)}</div>
+      <div class="badges"><span class="pill accent">${esc(step ? step.system : "")}</span></div>
+      <div class="tabs"><button class="tab active">Payload at this hop</button></div>
+    </div>
+    <div class="panel-body">
+      ${hop.note ? `<div class="trace-note">${esc(hop.note)}</div>` : ""}
+      <table class="diff"><tbody>${rows}</tbody></table>
+      ${removed.length ? `<div class="map-hint" style="margin-top:8px">Dropped since previous hop: <span class="mono">${removed.map(esc).join(", ")}</span></div>` : ""}
+      ${prev ? `<div class="diff-key">
+        <span><i style="background:var(--ok-soft);border:1px solid var(--ok)"></i>added this hop</span>
+        <span><i style="background:var(--phi-soft);border:1px solid var(--phi)"></i>changed this hop</span></div>`
+      : `<div class="map-hint" style="margin-top:8px">First hop — the record as it enters the flow.</div>`}
+    </div>`;
+}
+
+boot();
+</script>
+</body>
+</html>
