@@ -665,6 +665,7 @@ def run_upgrade(project_path: Path, auto_yes: bool) -> None:
     updated: list[str] = []
     added: list[str] = []
     skipped: list[str] = []
+    drifted: list[str] = []
 
     # Collect infrastructure files from template
     template_files: dict[str, Path] = {}
@@ -710,6 +711,22 @@ def run_upgrade(project_path: Path, auto_yes: bool) -> None:
         if not diff_text:
             continue
 
+        # .claude/settings.json carries project-local hook and permission
+        # additions. An --upgrade must NEVER overwrite it — a whole-file replace
+        # silently clobbers those local additions. Instead, report the drift so it
+        # can be reconciled by hand. This holds in --yes too (drift is exactly the
+        # thing an unattended run must not clobber). Interim policy until the
+        # core/overlay split lands; see hub CLAUDE.md / IDEA-0034.
+        if Path(rel_path).as_posix() == ".claude/settings.json":
+            drifted.append(rel_path)
+            safe_print(f"  ! {rel_path} differs from template — NOT changed (drift; reconcile by hand)")
+            if not auto_yes:
+                safe_print("  " + "-" * 60)
+                for line in diff_text.splitlines():
+                    safe_print(f"  {line}")
+                safe_print("  " + "-" * 60)
+            continue
+
         if auto_yes:
             project_file.write_text(template_content, encoding="utf-8")
             updated.append(rel_path)
@@ -747,6 +764,10 @@ def run_upgrade(project_path: Path, auto_yes: bool) -> None:
         safe_print(f"  Skipped:  {len(skipped)} file(s)")
         for f in skipped:
             safe_print(f"    - {f}")
+    if drifted:
+        safe_print(f"  Drift:    {len(drifted)} file(s) differ but were NOT changed")
+        for f in drifted:
+            safe_print(f"    ! {f}  (reconcile by hand — never auto-overwritten)")
     if not updated and not added:
         safe_print("  Everything is already up to date.")
     if cmd_count:
