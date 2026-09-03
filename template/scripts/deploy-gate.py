@@ -168,6 +168,15 @@ def main() -> int:
         default="full",
         help="Which stage's checks to run. dev = lightest; full = all.",
     )
+    parser.add_argument(
+        "--status-only",
+        action="store_true",
+        help=(
+            "Run all checks and print the summary but write nothing. Intended for "
+            "the Stop hook: a reporting surface must not dirty the working tree by "
+            "rewriting the tracked specs/INDEX.md on every turn."
+        ),
+    )
     args = parser.parse_args()
 
     failures: list[str] = []
@@ -184,9 +193,12 @@ def main() -> int:
         print("\n".join(failures), file=sys.stderr)
         return 1
 
-    # Write INDEX.md as the old subprocess call did
-    repo_files = _git_ls_files()
-    INDEX_PATH.write_text(render_index(parsed_frs, repo_files), encoding="utf-8")
+    # Write INDEX.md as the old subprocess call did — unless --status-only, which
+    # is a read-only reporting surface. The Stop hook runs this; it must not dirty
+    # the working tree by rewriting a tracked file as a side effect of observing.
+    if not args.status_only:
+        repo_files = _git_ls_files()
+        INDEX_PATH.write_text(render_index(parsed_frs, repo_files), encoding="utf-8")
 
     frs = _load_fr_summaries(parsed_frs)
     covers = collect_covers()
