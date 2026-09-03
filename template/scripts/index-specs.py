@@ -451,6 +451,15 @@ def main() -> int:
             "limit to one FR."
         ),
     )
+    ap.add_argument(
+        "--validate",
+        action="store_true",
+        help=(
+            "Validate the FR graph and exit non-zero on error. Writes nothing — "
+            "for the spec_validate_if_changed hook, which must observe without "
+            "rewriting the tracked specs/INDEX.md on every edit."
+        ),
+    )
     args = ap.parse_args()
 
     if args.ac_hashes is not None:
@@ -472,6 +481,14 @@ def main() -> int:
         for err in all_errors:
             print(f"  - {err}", file=sys.stderr)
         return 1
+
+    # --validate is a check-only mode: the graph is valid, so report and exit 0
+    # without writing INDEX.md or CODEOWNERS. The spec_validate_if_changed hook
+    # runs this after every spec edit; writing a tracked file from a validation
+    # hook would dirty the tree on each edit — the thing it only means to observe.
+    if args.validate:
+        print(f"Spec graph OK ({len(frs)} FRs). Wrote nothing (--validate).")
+        return 0
 
     repo_files = _git_ls_files()
 
