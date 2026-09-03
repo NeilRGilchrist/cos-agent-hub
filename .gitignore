@@ -3,6 +3,9 @@ CLAUDE.local.md
 **/AGENTS.override.md
 **/CLAUDE.local.md
 
+# Local Claude Code settings (per-machine; never committed)
+/.claude/settings.local.json
+
 # Python
 __pycache__/
 *.pyc
